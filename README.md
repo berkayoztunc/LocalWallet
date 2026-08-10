@@ -4,8 +4,8 @@
 
 # LocalWallet
 
-**Manage hundreds of Solana wallets from one desktop app.**
-Encrypted locally. Keys never leave your machine.
+**A local Solana wallet manager for people who hold more than one.**
+Encrypted on your machine. Keys never leave it.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-01EEC5.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/berkayoztunc/LocalWallet?include_prereleases&color=01EEC5)](https://github.com/berkayoztunc/LocalWallet/releases)
@@ -16,20 +16,24 @@ Encrypted locally. Keys never leave your machine.
 
 ---
 
-## The problem
+## Why
 
-You have 200 Solana wallets. Phantom shows you one at a time. Checking every balance means 200 imports, sweeping them means 200 manual transfers, and the rent locked in their unused token accounts — about **0.002 SOL each** — quietly stays there because it isn't worth the clicks.
+Browser wallets are built around one account at a time. The moment you keep a few keys — a trading wallet, an airdrop set, leftovers from a mint, wallets you inherited from an old script — the basics get tedious: switch, check, switch back. Nobody audits balances they can't see on one screen.
 
-Worse, once a wallet is empty it can't pay the fee to release its own rent. The SOL is stranded behind a chicken-and-egg problem.
+There's also money quietly sitting still. Every SPL token account holds about **0.002 SOL** in rent, refundable once it's empty. A wallet that has traded a handful of tokens is often holding more in reclaimable rent than in SOL — and if it's been emptied, it can't even pay the fee to get that back.
 
-LocalWallet does all of it in bulk, from one window, without your keys touching a server.
+LocalWallet puts every wallet you own on one screen, does the tedious parts in bulk, and keeps the keys on your machine while it does.
+
+**Good fit if you:** hold several wallets and want one view · are cleaning up after a bot, mint or airdrop farm · want to consolidate scattered SOL · want your keys encrypted locally rather than in a browser extension.
+
+**Not for you if:** you have one wallet and Phantom already does the job · you want a hot wallet for daily dApp use — this signs transfers and account closures, nothing else.
 
 ## Features
 
 | | |
 |---|---|
 | **Encrypted vault** | Argon2id + XChaCha20-Poly1305. One master password, set on first run. |
-| **Bulk balances** | Every wallet's SOL in two RPC calls, not two hundred. |
+| **Bulk balances** | Every wallet's SOL at once, batched so a hundred wallets cost one RPC call rather than a hundred. |
 | **Token inventory** | Every token account across SPL Token and Token-2022, with balances, and how much rent is reclaimable. |
 | **Close unused accounts** | Reclaim rent from zero-balance token accounts. Built and signed locally — no third-party service, no fee taken. |
 | **Fund → close → return** | Lend an empty wallet a fee, close its accounts, send the proceeds on. Releases rent that would otherwise be unreachable. |
@@ -70,7 +74,7 @@ Apple Silicon only for now.
 2. **Import your keys.** Paste them one per line, or many separated by commas. Both formats work and can be mixed:
    - base58 secret key (Phantom / Solflare export)
    - JSON byte array (`solana-keygen`, `id.json`)
-3. **Set an RPC endpoint.** The public `api.mainnet-beta.solana.com` rate-limits hard at this scale. Use a dedicated provider (Helius, QuickNode, Triton), or a devnet URL to practise.
+3. **Set an RPC endpoint.** The default public endpoint is fine for a handful of wallets; past that it rate-limits. Use a dedicated provider (Helius, QuickNode, Triton), or a devnet URL to practise. There's a **Test** button next to the field.
 4. **Scan tokens** to see what rent is recoverable.
 5. **Close accounts** — or **Fund & close** for wallets too empty to pay their own fee.
 6. **Collect all SOL** into one destination. It shows a full preview and makes you retype the destination address before anything is signed.
