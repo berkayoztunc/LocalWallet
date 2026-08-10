@@ -1,0 +1,50 @@
+[package]
+name = "localwallet"
+version = "0.2.0"
+description = "Local Solana multi-wallet vault and sweeper"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "localwallet_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Solana
+solana-sdk = "=4.0.1"
+solana-client = "=4.2.0"
+solana-system-interface = { version = "3", features = ["bincode"] }
+solana-compute-budget-interface = { version = "3", features = ["borsh"] }
+solana-commitment-config = "3"
+spl-token = { version = "9", default-features = false }
+
+# Crypto / vault
+argon2 = "0.5"
+chacha20poly1305 = "0.11"
+zeroize = { version = "1", features = ["derive"] }
+rand = "0.8"
+bs58 = "0.5"
+base64 = "0.22"
+
+# Runtime
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+futures = "0.3"
+thiserror = "2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

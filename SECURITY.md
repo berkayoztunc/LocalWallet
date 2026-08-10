@@ -1,0 +1,40 @@
+# Security Policy
+
+LocalWallet holds private keys. If you find something wrong with how it does that, I want to know before anyone else does.
+
+## Reporting a vulnerability
+
+**Please do not open a public issue for security problems.**
+
+Use GitHub's private reporting: **[Report a vulnerability](https://github.com/berkayoztunc/LocalWallet/security/advisories/new)** on the Security tab. That opens a private thread visible only to maintainers.
+
+Helpful to include:
+
+- what an attacker can achieve, and what access they need to do it
+- steps to reproduce, ideally against devnet
+- the app version and macOS version
+- a suggested fix, if you have one
+
+I'll acknowledge within a few days. Since this is a small project, fixes ship as a new tagged release, and the advisory is published once users have had a chance to update.
+
+## In scope
+
+- **Vault encryption** — key derivation, the AEAD construction, nonce handling, anything that weakens `vault.bin` against an attacker who has the file
+- **Key handling** — key material reaching the webview, logs, error messages, swap, or crash dumps; failures to zeroize
+- **Transaction construction** — a transaction that sends funds somewhere other than what the UI showed and the user confirmed
+- **Confirmation bypass** — anything that lets a destructive action run without the preview and explicit confirmation it is supposed to require
+- **Supply chain** — a dependency shipping something it shouldn't
+
+## Out of scope
+
+- An attacker who already has your master password, or code execution on your unlocked machine
+- Phishing, or a maliciously modified build distributed by someone other than this repository's releases
+- RPC provider behaviour, downtime, or rate limiting
+- Rent that cannot be reclaimed because a token's creator holds the close authority — that is how SPL Token works, not a bug here
+- Loss of funds from confirming an action the app described accurately
+
+## What this project does not claim
+
+**LocalWallet is unaudited.** No third party has reviewed the cryptography or the transaction logic. There is no bug bounty. It is offered under the MIT licence, without warranty — read the [LICENSE](LICENSE).
+
+Use it for wallets you own, test on devnet, and keep an encrypted backup of your vault alongside the password. There is no recovery mechanism, by design.

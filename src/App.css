@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+/* Brand tokens.
+   Primary #01EEC5 / Secondary #02B998 / Cyan #00CFFF / Purple #8B3DFF /
+   Magenta #D000FF on the #091116 background. The ink ramp is derived from the
+   background hue so surfaces stay in the same family rather than going grey. */
+@theme {
+  --color-ink-950: #060c10;
+  --color-ink-900: #091116;
+  --color-ink-850: #0d181e;
+  --color-ink-800: #111e26;
+  --color-ink-700: #17272f;
+  --color-ink-600: #1c2f38;
+  --color-ink-500: #2a4450;
+  --color-ink-400: #38596a;
+
+  --color-mist-50: #e6f1f4;
+  --color-mist-300: #8ba6b0;
+  --color-mist-500: #5b7682;
+
+  --color-brand-300: #5df5da;
+  --color-brand-400: #2af0cf;
+  --color-brand-500: #01eec5;
+  --color-brand-600: #02b998;
+  --color-brand-950: #052a26;
+  /* The primary is a bright mint; only dark ink is readable on top of it. */
+  --color-brand-ink: #04211c;
+
+  --color-cyan-brand: #00cfff;
+  --color-purple-brand: #8b3dff;
+  --color-magenta-brand: #d000ff;
+
+  --color-amber-warn: #f0b429;
+  --color-rose-400: #ff5c72;
+
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --radius-card: 0.75rem;
+  --radius-control: 0.5rem;
+
+  /* Two elevations only: surfaces that sit on the page, and things that float
+     above it. More than that and depth stops meaning anything. */
+  --shadow-surface: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 16px 48px -12px rgba(0, 0, 0, 0.7);
+
+  /* One curve for every transition in the app. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-ink-900 text-mist-50 antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    color-scheme: dark;
+  }
+
+  /* Numbers line up in columns without needing a monospace face everywhere. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-ink-600;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-500;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  @keyframes lw-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes lw-pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.985);
+    }
+  }
+
+  @keyframes lw-pulse {
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  .animate-fade-in {
+    animation: lw-fade-in 140ms var(--ease-out) both;
+  }
+
+  .animate-pop-in {
+    animation: lw-pop-in 180ms var(--ease-out) both;
+  }
+
+  .animate-skeleton {
+    animation: lw-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+/* Motion is decoration on top of a layout that already works, so removing it
+   must never remove function. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

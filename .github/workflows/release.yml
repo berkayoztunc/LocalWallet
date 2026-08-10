@@ -1,0 +1,94 @@
+name: Release
+
+# Push a version tag to cut a release:
+#
+#   npm version 0.3.0 --no-git-tag-version   # then sync tauri.conf.json + Cargo.toml
+#   git commit -am "Release v0.3.0"
+#   git tag v0.3.0 && git push origin main --tags
+#
+# The build produces an unsigned .dmg and attaches it to a *draft* release,
+# so nothing goes public until you review and publish it.
+on:
+  push:
+    tags:
+      - 'v*'
+  # Lets you re-run a build without moving a tag.
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build macOS (Apple Silicon)
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # A tag that disagrees with the manifests would ship a .dmg whose
+      # filename and in-app version do not match the release. Fail before
+      # spending twenty minutes on a build that has to be thrown away.
+      - name: Verify tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          cargo_version=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
+          echo "tag: $tag | package.json: $pkg | tauri.conf.json: $conf | Cargo.toml: $cargo_version"
+          if [ "$tag" != "$pkg" ] || [ "$tag" != "$conf" ] || [ "$tag" != "$cargo_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the version in the manifests ($pkg / $conf / $cargo_version). Bump them in the same commit as the tag."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # Cheap insurance: a release should never ship code that fails its tests.
+      - name: Tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build and draft release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target aarch64-apple-darwin
+          tagName: ${{ github.ref_name }}
+          releaseName: LocalWallet ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false
+          releaseBody: |
+            ## Install
+
+            Download the `.dmg` below, open it, and drag **LocalWallet** to Applications.
+
+            This build is **not signed by Apple**, so macOS will refuse to open it on
+            the first try. Either right-click the app and choose **Open**, or run:
+
+            ```bash
+            xattr -dr com.apple.quarantine /Applications/LocalWallet.app
+            ```
+
+            Apple Silicon only. Your vault lives in
+            `~/Library/Application Support/com.localwallet.app/` and is untouched by
+            reinstalling.
+
+            ---
+
+            See the commit history for what changed in this version.
