@@ -102,7 +102,7 @@ export function ImportDialog({
         hint="Separators: newline, comma or space — a single comma-separated line of base58 keys works. Keys are encrypted into the vault immediately and never leave this machine."
       >
         <Textarea
-          className="min-h-56"
+          className="min-h-48"
           value={text}
           placeholder={
             "Paste one key per line, or many separated by commas.\n\n" +

@@ -10,14 +10,14 @@ import { Pill, Td, Th, cx } from "./ui";
 export function TokenRow({ tokens, settings }: { tokens: WalletTokens; settings: Settings }) {
   if (tokens.error) {
     return (
-      <div className="border-y border-ink-600 bg-ink-950 px-4 py-3 text-xs text-rose-400">
+      <div className="border-y border-ink-600 bg-ink-950 px-3 py-2 text-[11px] text-rose-400">
         Could not scan: {tokens.error}
       </div>
     );
   }
   if (tokens.accounts.length === 0) {
     return (
-      <div className="border-y border-ink-600 bg-ink-950 px-4 py-3 text-xs text-mist-500">
+      <div className="border-y border-ink-600 bg-ink-950 px-3 py-2 text-[11px] text-mist-500">
         No token accounts.
       </div>
     );
@@ -27,7 +27,7 @@ export function TokenRow({ tokens, settings }: { tokens: WalletTokens; settings:
   const sorted = [...tokens.accounts].sort((a, b) => b.ui_amount - a.ui_amount);
 
   return (
-    <div className="animate-fade-in border-y border-ink-600 bg-ink-950 px-4 py-3">
+    <div className="animate-fade-in border-y border-ink-600 bg-ink-950 px-3 py-2">
       <div className="mb-2 flex flex-wrap gap-x-1.5 text-[11px] text-mist-500">
         <span>
           {tokens.total_accounts} account{tokens.total_accounts === 1 ? "" : "s"}
@@ -66,7 +66,7 @@ export function TokenRow({ tokens, settings }: { tokens: WalletTokens; settings:
             <tr key={account.address} className="border-t border-ink-800">
               <Td className="!py-1 font-mono">
                 <button
-                  className="rounded text-brand-500 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand-500/40"
+                  className="text-brand-500 outline-none hover:underline focus-visible:ring-1 focus-visible:ring-brand-500"
                   onClick={() => openUrl(tokenUrl(settings, account.mint))}
                 >
                   {shortKey(account.mint)}

@@ -201,7 +201,7 @@ export function FundedCleanupDialog({
                 label="Destination (from Settings)"
                 hint="Shown in full on purpose — check every character before funding a run."
               >
-                <div className="rounded-control border border-ink-600 bg-ink-950 px-3 py-2 font-mono text-xs break-all text-mist-300">
+                <div className="border border-ink-600 bg-ink-950 px-2 py-1 font-mono text-[11px] break-all text-mist-300">
                   {destination}
                 </div>
               </Field>
@@ -238,7 +238,7 @@ export function FundedCleanupDialog({
                 </EmptyState>
               ) : (
                 <>
-                  <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-card border border-ink-600 bg-ink-600 sm:grid-cols-4">
+                  <div className="mb-3 grid grid-cols-2 gap-px border border-ink-600 bg-ink-600 sm:grid-cols-4">
                     <Figure label="Funder pays" value={toSol(plan.total_funding)} tone="rose" />
                     <Figure label="Rent recovered" value={toSol(plan.total_reclaimable)} tone="brand" />
                     <Figure label="Network fees" value={toSol(plan.total_fees)} />
@@ -349,11 +349,11 @@ function Figure({
   tone?: "brand" | "rose";
 }) {
   return (
-    <div className="bg-ink-850 px-3 py-2.5">
+    <div className="bg-ink-850 px-2.5 py-1.5">
       <div className="text-[10px] tracking-wider text-mist-500 uppercase">{label}</div>
       <div
         className={cx(
-          "tnum mt-0.5 text-sm",
+          "tnum mt-0.5 text-xs",
           tone === "brand" ? "text-brand-500" : tone === "rose" ? "text-rose-400" : "text-mist-50",
         )}
       >

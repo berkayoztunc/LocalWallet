@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   api,
   asAppError,
@@ -14,6 +15,7 @@ import { addressUrl, clusterFromRpc, explorerInfo } from "../lib/explorer";
 import {
   Banner,
   Button,
+  ButtonGroup,
   EmptyState,
   Input,
   Kbd,
@@ -21,7 +23,9 @@ import {
   RowActions,
   Skeleton,
   Spinner,
-  StatCard,
+  StatusBar,
+  StatusDivider,
+  StatusItem,
   Table,
   Td,
   Th,
@@ -75,8 +79,9 @@ export function Dashboard({
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [sendTarget, setSendTarget] = useState<Wallet | null>(null);
+  const [version, setVersion] = useState("");
   // Kept in state so the array identity is stable — an inline literal would
-  // re-trigger the cleanup dialog's preview effect on every render.
+  // re-trigger the dialogs' preview effects on every render.
   const [cleanupScope, setCleanupScope] = useState<{ pubkeys?: string[]; label?: string }>({});
   const [fundScope, setFundScope] = useState<{ pubkeys?: string[]; label?: string }>({});
   const searchRef = useRef<HTMLInputElement>(null);
@@ -121,6 +126,16 @@ export function Dashboard({
   useEffect(() => {
     loadWallets();
   }, [loadWallets]);
+
+  useEffect(() => {
+    let active = true;
+    getVersion().then((v) => {
+      if (active) setVersion(v);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // ⌘K or / focuses search, Escape clears it. Both ignore keystrokes already
   // aimed at an input so they never steal typing.
@@ -204,121 +219,94 @@ export function Dashboard({
     }
   }
 
+  const noWallets = wallets.length === 0;
+
   return (
     <div className="flex h-full flex-col">
-      {/* Band 1 — identity, search, actions */}
-      <header className="border-b border-ink-600 bg-ink-850">
-        <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <Logo size={26} />
-            <span className="font-semibold tracking-tight">LocalWallet</span>
-          </div>
+      {/* Toolbar */}
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-600 bg-ink-850 px-2.5 py-1.5">
+        <div className="flex items-center gap-2">
+          <Logo size={18} />
+          <span className="text-xs font-semibold tracking-tight">LocalWallet</span>
+        </div>
 
-          <div className="relative min-w-52 flex-1 sm:max-w-80">
-            <Input
-              ref={searchRef}
-              className="h-9 pr-16 pl-8 text-[13px]"
-              placeholder="Search label or address"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-mist-500">
-              ⌕
+        <div className="relative ml-1 min-w-44 flex-1 sm:max-w-64">
+          <Input
+            ref={searchRef}
+            className="pr-14 pl-6"
+            placeholder="Search label or address"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <span className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-mist-500">
+            ⌕
+          </span>
+          {query ? (
+            <button
+              className="absolute top-1/2 right-1.5 -translate-y-1/2 px-1 text-mist-500 hover:text-mist-50"
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+            >
+              ✕
+            </button>
+          ) : (
+            <span className="pointer-events-none absolute top-1/2 right-1.5 -translate-y-1/2">
+              <Kbd>⌘K</Kbd>
             </span>
-            {query ? (
-              <button
-                className="absolute top-1/2 right-2 -translate-y-1/2 rounded px-1 text-mist-500 hover:text-mist-50"
-                onClick={() => setQuery("")}
-                aria-label="Clear search"
-              >
-                ✕
-              </button>
-            ) : (
-              <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2">
-                <Kbd>⌘K</Kbd>
-              </span>
-            )}
-          </div>
+          )}
+        </div>
 
-          <Toolbar className="ml-auto">
+        <Toolbar className="ml-auto">
+          {/* Data actions */}
+          <ButtonGroup>
             <Button onClick={() => setDialog("import")}>Import</Button>
-            <Button onClick={refreshBalances} disabled={refreshing || wallets.length === 0}>
+            <Button onClick={refreshBalances} disabled={refreshing || noWallets}>
               {refreshing && <Spinner />} Balances
             </Button>
-            <Button onClick={scanTokens} disabled={scanning || wallets.length === 0}>
-              {scanning && <Spinner />} Scan tokens
+            <Button onClick={scanTokens} disabled={scanning || noWallets}>
+              {scanning && <Spinner />} Scan
             </Button>
+          </ButtonGroup>
+
+          {/* Actions that move funds */}
+          <ButtonGroup>
             <Button
               onClick={() => {
                 setCleanupScope({});
                 setDialog("cleanup");
               }}
-              disabled={wallets.length === 0}
+              disabled={noWallets}
             >
-              Close accounts
+              Close
             </Button>
             <Button
               onClick={() => {
                 setFundScope({});
                 setDialog("funded-cleanup");
               }}
-              disabled={wallets.length === 0}
+              disabled={noWallets}
               title="Lend each empty wallet a fee, close its token accounts, then send the proceeds to the sweep destination"
             >
               Fund &amp; close
             </Button>
-            <Button
-              variant="primary"
-              onClick={() => setDialog("sweep")}
-              disabled={wallets.length === 0}
-            >
-              Collect all SOL
-            </Button>
-            <span className="mx-0.5 h-5 w-px bg-ink-600" />
-            <Button variant="ghost" onClick={onOpenSettings}>
-              Settings
-            </Button>
-            <Button variant="ghost" onClick={onLock}>
-              Lock
-            </Button>
-          </Toolbar>
-        </div>
+          </ButtonGroup>
+
+          <Button variant="primary" onClick={() => setDialog("sweep")} disabled={noWallets}>
+            Collect all SOL
+          </Button>
+
+          <span className="mx-0.5 h-4 w-px bg-ink-600" />
+          <Button variant="ghost" onClick={onOpenSettings}>
+            Settings
+          </Button>
+          <Button variant="ghost" onClick={onLock}>
+            Lock
+          </Button>
+        </Toolbar>
       </header>
 
-      {/* Band 2 — aggregates */}
-      <div className="flex flex-wrap gap-2.5 border-b border-ink-600 px-4 py-3">
-        <StatCard
-          label="Wallets"
-          value={wallets.length}
-          sub={funded > 0 ? `${funded} funded` : undefined}
-        />
-        <StatCard label="Total SOL" value={toSol(total)} tone="brand" />
-        <StatCard
-          label="Token accounts"
-          value={tokenTotals ? tokenTotals.total_accounts : "—"}
-          sub={tokenTotals ? `${tokenTotals.total_with_balance} holding tokens` : "not scanned"}
-          tone={tokenTotals ? "cyan" : "default"}
-          loading={scanning}
-        />
-        <StatCard
-          label="Reclaimable rent"
-          value={tokenTotals ? toSol(tokenTotals.total_reclaimable_lamports) : "—"}
-          sub={tokenTotals ? `${tokenTotals.total_empty} empty accounts` : "not scanned"}
-          loading={scanning}
-        />
-        <StatCard
-          label="Network"
-          value={<span className="text-sm">{new URL(settings.rpc_url).host}</span>}
-          sub={
-            <span className="inline-flex items-center gap-1.5">
-              <Pill tone={cluster === "mainnet" ? "accent" : "warn"}>{cluster}</Pill>
-              <span>{explorerInfo(settings.explorer).name}</span>
-            </span>
-          }
-        />
-      </div>
-
-      <div className="flex-1 overflow-auto p-4">
+      {/* Content */}
+      <div className="min-h-0 flex-1 overflow-auto p-2.5">
         {error && <Banner kind="error">{error}</Banner>}
 
         {settings.rpc_url.includes("api.mainnet-beta.solana.com") && wallets.length > 20 && (
@@ -328,9 +316,9 @@ export function Dashboard({
           </Banner>
         )}
 
-        {wallets.length === 0 ? (
+        {noWallets ? (
           <EmptyState title="No wallets yet">
-            <p className="mb-4">Import private keys to get started.</p>
+            <p className="mb-3">Import private keys to get started.</p>
             <Button variant="primary" onClick={() => setDialog("import")}>
               Import private keys
             </Button>
@@ -345,13 +333,13 @@ export function Dashboard({
           <Table>
             <thead>
               <tr>
-                <Th className="w-[22%]">Label</Th>
-                <Th>Address</Th>
-                <Th numeric className="w-36">
+                <Th className="w-[20%]">Label</Th>
+                <Th className="border-l border-ink-600">Address</Th>
+                <Th numeric className="w-32 border-l border-ink-600">
                   SOL
                 </Th>
-                <Th className="w-32">Tokens</Th>
-                <Th className="w-64" />
+                <Th className="w-28 border-l border-ink-600">Tokens</Th>
+                <Th className="w-60 border-l border-ink-600" />
               </tr>
             </thead>
             <tbody>
@@ -360,48 +348,45 @@ export function Dashboard({
                 const isOpen = expanded === w.pubkey;
                 const isFunder = settings.funder_pubkey === w.pubkey;
                 // A wallet holding rent it cannot pay to release is exactly
-                // what the funded flow exists for. The backend re-checks the
-                // real numbers, so this only decides which button to show.
+                // what the funded flow exists for.
                 const hasRent = (walletTokens?.reclaimable_lamports ?? 0) > 0;
                 const canPay = (balances[w.pubkey] ?? 0) >= FEE_FLOOR_LAMPORTS;
                 return (
                   <Fragment key={w.pubkey}>
                     <Tr>
                       <Td>
-                        {isFunder && (
-                          <span className="mr-1.5 align-middle">
-                            <Pill tone="accent">main</Pill>
-                          </span>
-                        )}
-                        {editing === w.pubkey ? (
-                          <Input
-                            autoFocus
-                            className="h-7 py-1"
-                            value={draftLabel}
-                            onChange={(e) => setDraftLabel(e.target.value)}
-                            onBlur={() => commitRename(w.pubkey)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") commitRename(w.pubkey);
-                              if (e.key === "Escape") setEditing(null);
-                            }}
-                          />
-                        ) : (
-                          <button
-                            className="-mx-1 max-w-full truncate rounded px-1 py-0.5 text-left outline-none hover:bg-ink-700 focus-visible:ring-2 focus-visible:ring-brand-500/40"
-                            title="Click to rename"
-                            onClick={() => {
-                              setEditing(w.pubkey);
-                              setDraftLabel(w.label);
-                            }}
-                          >
-                            {w.label}
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          {isFunder && <Pill tone="accent">main</Pill>}
+                          {editing === w.pubkey ? (
+                            <Input
+                              autoFocus
+                              className="h-5"
+                              value={draftLabel}
+                              onChange={(e) => setDraftLabel(e.target.value)}
+                              onBlur={() => commitRename(w.pubkey)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") commitRename(w.pubkey);
+                                if (e.key === "Escape") setEditing(null);
+                              }}
+                            />
+                          ) : (
+                            <button
+                              className="-mx-1 max-w-full truncate px-1 text-left outline-none hover:bg-ink-700 focus-visible:ring-1 focus-visible:ring-brand-500"
+                              title="Click to rename"
+                              onClick={() => {
+                                setEditing(w.pubkey);
+                                setDraftLabel(w.label);
+                              }}
+                            >
+                              {w.label}
+                            </button>
+                          )}
+                        </div>
                       </Td>
 
-                      <Td>
+                      <Td className="border-l border-ink-600/60">
                         <button
-                          className="group/copy -mx-1 inline-flex max-w-full items-center gap-1.5 rounded px-1 py-0.5 font-mono text-xs text-mist-300 outline-none hover:bg-ink-700 hover:text-mist-50 focus-visible:ring-2 focus-visible:ring-brand-500/40"
+                          className="group/copy -mx-1 inline-flex max-w-full items-center gap-1.5 px-1 font-mono text-[11px] text-mist-300 outline-none hover:bg-ink-700 hover:text-mist-50 focus-visible:ring-1 focus-visible:ring-brand-500"
                           title={`${w.pubkey}\nClick to copy`}
                           onClick={() => copyAddress(w.pubkey)}
                         >
@@ -419,22 +404,22 @@ export function Dashboard({
                         </button>
                       </Td>
 
-                      <Td numeric>
+                      <Td numeric className="border-l border-ink-600/60 font-mono">
                         {balances[w.pubkey] === undefined && refreshing ? (
-                          <Skeleton className="ml-auto h-4 w-16" />
+                          <Skeleton className="ml-auto h-3 w-14" />
                         ) : (
                           toSol(balances[w.pubkey])
                         )}
                       </Td>
 
-                      <Td>
+                      <Td className="border-l border-ink-600/60">
                         {scanning && !walletTokens ? (
-                          <Skeleton className="h-4 w-12" />
+                          <Skeleton className="h-3 w-10" />
                         ) : walletTokens ? (
                           <button
                             className={cx(
-                              "-mx-1 rounded px-1.5 py-0.5 text-xs outline-none transition-colors",
-                              "hover:bg-ink-700 focus-visible:ring-2 focus-visible:ring-brand-500/40",
+                              "-mx-1 px-1 text-[11px] outline-none transition-colors",
+                              "hover:bg-ink-700 focus-visible:ring-1 focus-visible:ring-brand-500",
                               walletTokens.total_accounts > 0 ? "text-cyan-brand" : "text-mist-500",
                             )}
                             aria-expanded={isOpen}
@@ -445,11 +430,11 @@ export function Dashboard({
                             {walletTokens.total_accounts > 0 && (isOpen ? " ▾" : " ▸")}
                           </button>
                         ) : (
-                          <span className="text-xs text-mist-500">—</span>
+                          <span className="text-[11px] text-mist-500">—</span>
                         )}
                       </Td>
 
-                      <Td>
+                      <Td className="border-l border-ink-600/60">
                         <RowActions>
                           <Button
                             size="sm"
@@ -462,8 +447,6 @@ export function Dashboard({
                           >
                             Send
                           </Button>
-                          {/* A wallet that can pay its own fee closes directly;
-                              one that cannot has to be funded first. */}
                           {hasRent &&
                             (canPay ? (
                               <Button
@@ -498,7 +481,7 @@ export function Dashboard({
                                   setDialog("funded-cleanup");
                                 }}
                               >
-                                Fund &amp; close
+                                Fund
                               </Button>
                             ))}
                           <Button
@@ -517,11 +500,11 @@ export function Dashboard({
                           <Button
                             size="sm"
                             variant="ghost"
+                            title="Open in explorer"
                             onClick={() => openUrl(addressUrl(settings, w.pubkey))}
                           >
-                            Explorer ↗
+                            ↗
                           </Button>
-                          <span className="mx-0.5 h-4 w-px self-center bg-ink-600" />
                           <Button
                             size="sm"
                             variant="ghost"
@@ -547,13 +530,37 @@ export function Dashboard({
             </tbody>
           </Table>
         )}
-
-        {query && visible.length > 0 && (
-          <p className="mt-3 text-xs text-mist-500">
-            Showing {visible.length} of {wallets.length} wallets.
-          </p>
-        )}
       </div>
+
+      {/* Status bar — the numbers that used to sit in a band of cards above the
+          table, now permanently visible at a fraction of the space. */}
+      <StatusBar>
+        <StatusItem value={query ? `${visible.length}/${wallets.length}` : wallets.length} label="wallets" />
+        <StatusDivider />
+        <StatusItem value={`${toSol(total)} SOL`} tone="brand" />
+        <StatusItem value={`${funded} funded`} />
+        <StatusDivider />
+        {tokenTotals ? (
+          <>
+            <StatusItem value={tokenTotals.total_accounts} label="token accts" tone="cyan" />
+            <StatusItem value={`${toSol(tokenTotals.total_reclaimable_lamports)} reclaimable`} />
+          </>
+        ) : (
+          <StatusItem value="tokens not scanned" />
+        )}
+        <span className="flex-1" />
+        <StatusItem value={cluster} tone={cluster === "mainnet" ? undefined : "warn"} />
+        <StatusDivider />
+        <StatusItem value={new URL(settings.rpc_url).host} />
+        <StatusDivider />
+        <StatusItem value={explorerInfo(settings.explorer).name} />
+        {version && (
+          <>
+            <StatusDivider />
+            <StatusItem value={`v${version}`} />
+          </>
+        )}
+      </StatusBar>
 
       {dialog === "import" && (
         <ImportDialog onClose={() => setDialog(null)} onImported={loadWallets} />

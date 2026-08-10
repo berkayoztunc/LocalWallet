@@ -143,26 +143,26 @@ export function SettingsScreen({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-2.5 border-b border-ink-600 bg-ink-850 px-4 py-3">
-        <Logo size={26} />
-        <span className="font-semibold tracking-tight">Settings</span>
+      <header className="flex shrink-0 items-center gap-2 border-b border-ink-600 bg-ink-850 px-2.5 py-1.5">
+        <Logo size={18} />
+        <span className="text-xs font-semibold tracking-tight">Settings</span>
         <span className="flex-1" />
         <Button onClick={onBack}>← Back to wallets</Button>
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <nav className="w-48 shrink-0 border-r border-ink-600 p-3">
+        <nav className="w-40 shrink-0 border-r border-ink-600 py-1.5">
           {SECTIONS.map((s) => (
             <button
               key={s.id}
               onClick={() => setSection(s.id)}
               className={cx(
-                "mb-0.5 block w-full rounded-control px-3 py-2 text-left text-[13px] outline-none",
-                "transition-colors duration-150 ease-[var(--ease-out)]",
-                "focus-visible:ring-2 focus-visible:ring-brand-500/40",
+                "block w-full border-l-2 px-2.5 py-1.5 text-left text-xs outline-none",
+                "transition-colors duration-100 ease-[var(--ease-out)]",
+                "focus-visible:ring-1 focus-visible:ring-brand-500",
                 section === s.id
-                  ? "bg-ink-800 font-medium text-brand-500"
-                  : "text-mist-300 hover:bg-ink-850 hover:text-mist-50",
+                  ? "border-brand-500 bg-ink-800 font-medium text-brand-500"
+                  : "border-transparent text-mist-300 hover:bg-ink-850 hover:text-mist-50",
               )}
             >
               {s.label}
@@ -171,7 +171,7 @@ export function SettingsScreen({
         </nav>
 
         <div className="min-w-0 flex-1 overflow-auto">
-          <div className="mx-auto max-w-2xl p-5 pb-24">
+          <div className="mx-auto max-w-2xl p-3 pb-16">
             {message && <Banner kind={message.kind}>{message.text}</Banner>}
 
             {section === "network" && (
@@ -195,7 +195,7 @@ export function SettingsScreen({
                     {health && (
                       <div
                         className={cx(
-                          "mt-2 rounded-control border px-2.5 py-1.5 text-xs",
+                          "mt-2 border px-2.5 py-1.5 text-xs",
                           health.ok
                             ? "border-brand-600/30 bg-brand-600/10 text-brand-400"
                             : "border-rose-400/30 bg-rose-400/10 text-rose-400",
@@ -279,7 +279,7 @@ export function SettingsScreen({
                     </Banner>
                   )}
 
-                  <div className="rounded-control border border-ink-600 bg-ink-950 p-3">
+                  <div className="border border-ink-600 bg-ink-950 p-3">
                     <div className="mb-1.5 text-[10px] tracking-wider text-mist-500 uppercase">
                       Link preview
                     </div>
@@ -383,7 +383,7 @@ export function SettingsScreen({
               </Card>
             )}
 
-            <p className="mt-6 text-center text-xs text-mist-500">
+            <p className="mt-4 text-center text-[11px] text-mist-500">
               LocalWallet{version && ` v${version}`}
             </p>
           </div>
@@ -392,9 +392,9 @@ export function SettingsScreen({
 
       {/* Only appears when there is something to lose. */}
       {dirty && (
-        <div className="animate-pop-in border-t border-ink-600 bg-ink-850/95 px-5 py-3 backdrop-blur">
-          <div className="mx-auto flex max-w-2xl items-center gap-3">
-            <span className="flex-1 text-[13px] text-mist-300">You have unsaved changes.</span>
+        <div className="animate-pop-in shrink-0 border-t border-ink-600 bg-ink-800 px-3 py-1.5">
+          <div className="mx-auto flex h-7 max-w-2xl items-center gap-2">
+            <span className="flex-1 text-[11px] text-mist-300">Unsaved changes</span>
             <Button onClick={() => setDraft(settings)} disabled={saving}>
               Discard
             </Button>

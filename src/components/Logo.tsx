@@ -12,7 +12,7 @@ export function Logo({ className, size = 24 }: { className?: string; size?: numb
       alt="LocalWallet"
       width={size}
       height={size}
-      className={cx("rounded-lg object-contain select-none", className)}
+      className={cx("object-contain select-none", className)}
       draggable={false}
     />
   );

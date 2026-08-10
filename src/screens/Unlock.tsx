@@ -53,12 +53,12 @@ export function Unlock({ onUnlocked }: { onUnlocked: () => void }) {
   return (
     <div className="grid min-h-full place-items-center p-6">
       <form
-        className="animate-pop-in w-full max-w-md rounded-card border border-ink-600 bg-ink-850 p-7 shadow-float"
+        className="animate-pop-in w-full max-w-sm border border-ink-500 bg-ink-850 p-5 shadow-float"
         onSubmit={submit}
       >
-        <Logo size={40} className="mb-5" />
-        <h1 className="text-xl font-semibold">Unlock vault</h1>
-        <p className="mt-1 mb-6 text-[13px] text-mist-300">
+        <Logo size={28} className="mb-4" />
+        <h1 className="text-base font-semibold">Unlock vault</h1>
+        <p className="mt-1 mb-4 text-xs text-mist-300">
           Enter your master password to decrypt your wallets.
         </p>
 

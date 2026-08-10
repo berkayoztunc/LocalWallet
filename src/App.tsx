@@ -61,9 +61,9 @@ export default function App() {
   if (fatal) {
     return (
       <div className="grid min-h-full place-items-center p-6">
-        <div className="animate-pop-in w-full max-w-md rounded-card border border-ink-600 bg-ink-850 p-7 shadow-float">
+        <div className="animate-pop-in w-full max-w-md border border-ink-600 bg-ink-850 p-7 shadow-float">
           <h1 className="mb-3 text-xl font-semibold">Something went wrong</h1>
-          <div className="rounded-control border border-rose-400/30 bg-rose-400/10 px-3 py-2.5 text-[13px] text-rose-400">
+          <div className="border border-rose-400/30 bg-rose-400/10 px-3 py-2.5 text-[13px] text-rose-400">
             {fatal}
           </div>
         </div>

@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+/* Fonts are bundled, never fetched: the app has to work offline and must not
+   fire a request on launch. Only the latin variable files are declared —
+   importing the packages' own stylesheets would pull Cyrillic, Greek and
+   Vietnamese subsets into the bundle (2.1 MB instead of 88 KB). */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2")
+    format("woff2-variations");
+}
+
 /* Brand tokens.
    Primary #01EEC5 / Secondary #02B998 / Cyan #00CFFF / Purple #8B3DFF /
    Magenta #D000FF on the #091116 background. The ink ramp is derived from the
@@ -33,15 +54,19 @@
   --color-amber-warn: #f0b429;
   --color-rose-400: #ff5c72;
 
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Slashed zero throughout. In an app full of base58 addresses, 0 against O
+     is a genuine hazard, not a stylistic preference. */
+  --font-sans--font-feature-settings: "zero";
+  --font-mono--font-feature-settings: "zero";
 
-  --radius-card: 0.75rem;
-  --radius-control: 0.5rem;
-
-  /* Two elevations only: surfaces that sit on the page, and things that float
-     above it. More than that and depth stops meaning anything. */
-  --shadow-surface: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-float: 0 16px 48px -12px rgba(0, 0, 0, 0.7);
+  /* A desktop tool, not a web page: every corner is square. Surfaces are
+     separated by hairlines rather than elevation, so there is no surface
+     shadow either — only floating dialogs get one. */
+  --radius-card: 0;
+  --radius-control: 0;
+  --shadow-float: 0 16px 48px -12px rgba(0, 0, 0, 0.75);
 
   /* One curve for every transition in the app. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -55,9 +80,8 @@
   }
 
   body {
-    @apply bg-ink-900 text-mist-50 antialiased;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 14px;
+    @apply bg-ink-900 font-sans text-mist-50 antialiased;
+    font-size: 13px;
     color-scheme: dark;
   }
 
@@ -67,14 +91,14 @@
   }
 
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
   }
   ::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-ink-600;
+    @apply border-4 border-solid border-transparent bg-ink-500 bg-clip-content;
   }
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-ink-500;
+    @apply bg-ink-400;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
@@ -88,10 +112,12 @@
     }
   }
 
+  /* Square dialogs slide rather than scale - a scaling rectangle reads as a
+     web modal, which is exactly what this pass is moving away from. */
   @keyframes lw-pop-in {
     from {
       opacity: 0;
-      transform: translateY(6px) scale(0.985);
+      transform: translateY(4px);
     }
   }
 
@@ -102,11 +128,11 @@
   }
 
   .animate-fade-in {
-    animation: lw-fade-in 140ms var(--ease-out) both;
+    animation: lw-fade-in 120ms var(--ease-out) both;
   }
 
   .animate-pop-in {
-    animation: lw-pop-in 180ms var(--ease-out) both;
+    animation: lw-pop-in 140ms var(--ease-out) both;
   }
 
   .animate-skeleton {

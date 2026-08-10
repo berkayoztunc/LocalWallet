@@ -1,5 +1,4 @@
 import { useEffect, type ReactNode } from "react";
-import { Button } from "./ui";
 
 interface Props {
   title: ReactNode;
@@ -23,7 +22,7 @@ export function Modal({ title, onClose, children, footer, busy, width = "max-w-2
 
   return (
     <div
-      className="animate-fade-in fixed inset-0 z-50 grid place-items-center bg-black/70 p-6 backdrop-blur-sm"
+      className="animate-fade-in fixed inset-0 z-50 grid place-items-center bg-black/70 p-6"
       onClick={() => {
         if (!busy) onClose();
       }}
@@ -31,21 +30,28 @@ export function Modal({ title, onClose, children, footer, busy, width = "max-w-2
       <div
         role="dialog"
         aria-modal="true"
-        className={`animate-pop-in flex max-h-[85vh] w-full ${width} flex-col rounded-card border border-ink-500 bg-ink-850 shadow-float`}
+        className={`animate-pop-in flex max-h-[86vh] w-full ${width} flex-col border border-ink-500 bg-ink-850 shadow-float`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-ink-600 px-5 py-3.5">
-          <h2 className="text-[15px] font-semibold">{title}</h2>
-          <Button variant="ghost" size="sm" onClick={onClose} disabled={busy} aria-label="Close">
+        {/* Title bar, not a heading block: fixed height, hairline rule, and a
+            close affordance parked at the right like a real window. */}
+        <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-ink-600 bg-ink-800 pr-1 pl-3">
+          <h2 className="truncate text-xs font-semibold tracking-wide">{title}</h2>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Close"
+            className="grid size-6 shrink-0 place-items-center text-mist-500 outline-none hover:bg-ink-700 hover:text-mist-50 focus-visible:ring-1 focus-visible:ring-brand-500 disabled:opacity-40"
+          >
             ✕
-          </Button>
+          </button>
         </div>
 
-        <div className="flex-1 overflow-auto p-5">{children}</div>
+        <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
 
-        {/* Secondary actions sit left, the committing action always far right. */}
+        {/* Action bar. Secondary actions sit left, the committing action right. */}
         {footer && (
-          <div className="flex items-center gap-2.5 border-t border-ink-600 bg-ink-850 px-5 py-3.5">
+          <div className="flex h-10 shrink-0 items-center gap-2 border-t border-ink-600 bg-ink-800 px-3">
             {footer}
           </div>
         )}

@@ -49,12 +49,12 @@ export function Setup({ onDone }: { onDone: () => void }) {
   return (
     <div className="grid min-h-full place-items-center p-6">
       <form
-        className="animate-pop-in w-full max-w-md rounded-card border border-ink-600 bg-ink-850 p-7 shadow-float"
+        className="animate-pop-in w-full max-w-sm border border-ink-500 bg-ink-850 p-5 shadow-float"
         onSubmit={submit}
       >
-        <Logo size={40} className="mb-5" />
-        <h1 className="text-xl font-semibold">Set a master password</h1>
-        <p className="mt-1 mb-6 text-[13px] text-mist-300">
+        <Logo size={28} className="mb-4" />
+        <h1 className="text-base font-semibold">Set a master password</h1>
+        <p className="mt-1 mb-4 text-xs text-mist-300">
           Your private keys are encrypted with this password and stored only on this computer.
         </p>
 
@@ -76,7 +76,7 @@ export function Setup({ onDone }: { onDone: () => void }) {
                 {[0, 1, 2].map((i) => (
                   <span
                     key={i}
-                    className={`h-1 flex-1 rounded-full ${i < s.bars ? s.tone : "bg-ink-600"}`}
+                    className={`h-1 flex-1 ${i < s.bars ? s.tone : "bg-ink-600"}`}
                   />
                 ))}
               </div>
