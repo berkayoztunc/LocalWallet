@@ -388,9 +388,12 @@ export function onCleanupProgress(cb: (p: CleanupProgress) => void): Promise<Unl
   return listen<CleanupProgress>("cleanup://progress", (e) => cb(e.payload));
 }
 
-/** Fired when the tray menu's "Refresh balances" item is chosen. */
-export function onMenubarRefresh(cb: () => void): Promise<UnlistenFn> {
-  return listen("menubar://refresh", () => cb());
+/**
+ * Fired after the tray refreshes balances on its own. The window may be hidden
+ * when this arrives; if it is open, its table needs to catch up.
+ */
+export function onBalancesChanged(cb: () => void): Promise<UnlistenFn> {
+  return listen("balances://changed", () => cb());
 }
 
 export function onStakeProgress(cb: (p: StakeProgress) => void): Promise<UnlistenFn> {

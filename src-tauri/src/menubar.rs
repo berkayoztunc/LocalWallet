@@ -32,6 +32,66 @@ const LAMPORTS_PER_SOL: f64 = 1_000_000_000.0;
 /// The tray's id, used to find it again when the total changes.
 pub const TRAY_ID: &str = "main";
 
+/// Menu item ids. Items are looked up through `Menu::get` and mutated in
+/// place, so nothing needs to hold on to their handles.
+pub const MENU_STATUS: &str = "status";
+pub const MENU_SHOW: &str = "show";
+pub const MENU_REFRESH: &str = "refresh";
+pub const MENU_QUIT: &str = "quit";
+
+pub const REFRESH_LABEL: &str = "Refresh balances";
+/// Shown instead when the vault is locked: the wallet list is encrypted, so
+/// there is nothing to refresh. Saying why beats a dead menu item.
+pub const REFRESH_LOCKED_LABEL: &str = "Refresh balances — unlock first";
+
+/// What the disabled status line at the top of the menu is reporting.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Status {
+    /// Nothing refreshed yet this session.
+    Never,
+    /// A refresh is in flight.
+    Updating,
+    /// Succeeded at this unix time.
+    Updated(i64),
+    /// Failed. Carries the previous success, if there was one.
+    Failed {
+        reason: String,
+        last_success: Option<i64>,
+    },
+}
+
+/// Render the status line.
+///
+/// Pure, so the wording is pinned by tests rather than discovered in a menu.
+/// The failure case deliberately keeps the previous timestamp: a menu bar that
+/// forgets when it was last right is worse than one that admits it is stale.
+pub fn status_line(status: &Status) -> String {
+    match status {
+        Status::Never => "Not updated yet".to_string(),
+        Status::Updating => "Updating…".to_string(),
+        Status::Updated(at) => format!("Updated {}", clock(*at)),
+        Status::Failed {
+            reason,
+            last_success,
+        } => match last_success {
+            Some(at) => format!("{reason} — last update {}", clock(*at)),
+            None => reason.clone(),
+        },
+    }
+}
+
+/// Local wall-clock `HH:MM` for a unix timestamp. `chrono` is already in the
+/// dependency tree, so this costs no extra build.
+fn clock(unix: i64) -> String {
+    chrono::DateTime::from_timestamp(unix, 0)
+        .map(|utc| {
+            chrono::DateTime::<chrono::Local>::from(utc)
+                .format("%H:%M")
+                .to_string()
+        })
+        .unwrap_or_else(|| "??:??".to_string())
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Cached {
     pub lamports: u64,
@@ -225,6 +285,41 @@ mod tests {
         assert_eq!(thousands(1_000), "1,000");
         assert_eq!(thousands(12_345), "12,345");
         assert_eq!(thousands(1_234_567), "1,234,567");
+    }
+
+    #[test]
+    fn status_line_covers_every_state() {
+        assert_eq!(status_line(&Status::Never), "Not updated yet");
+        assert_eq!(status_line(&Status::Updating), "Updating…");
+        // The clock text depends on the machine's timezone, so assert the
+        // shape rather than a fixed hour.
+        let updated = status_line(&Status::Updated(1_700_000_000));
+        assert!(updated.starts_with("Updated "), "got {updated}");
+        assert_eq!(updated.len(), "Updated 00:00".len());
+    }
+
+    #[test]
+    fn a_failure_keeps_the_last_good_timestamp() {
+        // A menu bar that forgets when it was last right is worse than one
+        // that admits it is stale, so the previous success survives an error.
+        let failed = status_line(&Status::Failed {
+            reason: "RPC unreachable".into(),
+            last_success: Some(1_700_000_000),
+        });
+        assert!(
+            failed.starts_with("RPC unreachable — last update "),
+            "got {failed}"
+        );
+
+        // With nothing to fall back on, the reason stands alone rather than
+        // inventing a time.
+        assert_eq!(
+            status_line(&Status::Failed {
+                reason: "RPC unreachable".into(),
+                last_success: None,
+            }),
+            "RPC unreachable"
+        );
     }
 
     #[test]

@@ -25,8 +25,9 @@ pub const SWEEP_EVENT: &str = "sweep://progress";
 pub const CLEANUP_EVENT: &str = "cleanup://progress";
 pub const FUNDED_CLEANUP_EVENT: &str = "funded-cleanup://progress";
 pub const STAKE_EVENT: &str = "stake://progress";
-/// Emitted when the tray menu asks the frontend to refresh.
-pub const MENUBAR_REFRESH_EVENT: &str = "menubar://refresh";
+/// Emitted after the tray refreshes balances, so an open window updates its
+/// table instead of showing figures the menu bar has already superseded.
+pub const BALANCES_CHANGED_EVENT: &str = "balances://changed";
 
 fn data_dir(app: &AppHandle) -> Result<PathBuf> {
     app.path()
@@ -104,6 +105,7 @@ pub async fn vault_create(
         key: created.1,
         salt: created.2,
     });
+    crate::sync_menu(&app);
     Ok(VaultStatus {
         exists: true,
         unlocked: true,
@@ -128,6 +130,7 @@ pub async fn vault_unlock(
         key: opened.1,
         salt: opened.2,
     });
+    crate::sync_menu(&app);
     Ok(VaultStatus {
         exists: true,
         unlocked: true,
@@ -136,8 +139,9 @@ pub async fn vault_unlock(
 }
 
 #[tauri::command]
-pub async fn vault_lock(state: State<'_, AppState>) -> Result<()> {
+pub async fn vault_lock(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.lock_vault();
+    crate::sync_menu(&app);
     Ok(())
 }
 
@@ -278,7 +282,17 @@ pub async fn balances_refresh(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<BalanceView>> {
-    let dir = data_dir(&app)?;
+    wallet_balances(&app, &state).await
+}
+
+/// Read every wallet's balance.
+///
+/// Shared by the `balances_refresh` command and the tray's Refresh item so the
+/// two paths cannot drift. Nothing here needs the webview: the wallet list
+/// comes from the unlocked vault in `AppState`, which is why the tray can
+/// refresh with the window closed.
+pub async fn wallet_balances(app: &AppHandle, state: &AppState) -> Result<Vec<BalanceView>> {
+    let dir = data_dir(app)?;
     let settings = state.settings(&dir);
     let pubkeys: Vec<String> = state.with_vault(|u| {
         Ok(u.data

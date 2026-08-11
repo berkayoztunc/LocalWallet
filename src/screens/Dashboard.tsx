@@ -4,7 +4,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import {
   api,
   asAppError,
-  onMenubarRefresh,
+  onBalancesChanged,
   shortKey,
   toSol,
   type Settings,
@@ -165,13 +165,26 @@ export function Dashboard({
     return () => window.removeEventListener("focus", onFocus);
   }, [refreshBalances]);
 
-  // "Refresh balances" in the tray menu.
+  // The tray refreshes balances itself now, so the table follows rather than
+  // driving it. Without this the window would show figures the menu bar has
+  // already superseded.
   useEffect(() => {
-    const unlisten = onMenubarRefresh(() => refreshBalances());
+    const unlisten = onBalancesChanged(() => {
+      api
+        .balancesRefresh()
+        .then((list) => {
+          setBalances(Object.fromEntries(list.map((b) => [b.pubkey, b.lamports])));
+          lastRefreshAt.current = Date.now();
+        })
+        .catch(() => {
+          // The tray already reports failures in its own status line; the
+          // table simply keeps what it had.
+        });
+    });
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [refreshBalances]);
+  }, []);
 
   useEffect(() => {
     let active = true;
