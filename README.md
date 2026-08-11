@@ -73,14 +73,21 @@ Everything that describes your money — stake amounts, commissions, delinquency
 
 Download the latest `.dmg` from [**Releases**](https://github.com/berkayoztunc/LocalWallet/releases), open it, and drag **LocalWallet** to Applications.
 
-macOS will refuse to open it the first time — the build is **not signed by an Apple Developer account**, so Gatekeeper treats it as untrusted. This is expected for open-source software distributed outside the App Store. Either:
+macOS will refuse to open it the first time. The build is **not signed with an Apple Developer ID**, so Gatekeeper treats it as unidentified — expected for open-source software distributed outside the App Store. Pick either:
 
-- right-click the app → **Open** → **Open** again, or
-- clear the quarantine flag:
+**Through System Settings** — double-click the app, dismiss the warning, then open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**. macOS remembers the choice.
+
+**Or in one command:**
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LocalWallet.app
 ```
+
+This strips the quarantine flag macOS adds to downloaded files. It is the same thing the Settings button does, without the round trip.
+
+> On macOS 15 and later, right-clicking the app and choosing *Open* no longer bypasses this — Apple removed that path. Use one of the two above.
+
+Building from source avoids the warning entirely, since locally built apps are never quarantined.
 
 Apple Silicon only for now.
 
