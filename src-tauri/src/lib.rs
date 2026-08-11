@@ -41,6 +41,8 @@ pub fn run() {
             commands::send_sol,
             commands::sweep_preview,
             commands::stake_scan,
+            commands::stake_quote,
+            commands::stake_delegate,
             commands::stake_deactivate,
             commands::stake_withdraw,
             commands::validators_list,

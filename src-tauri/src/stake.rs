@@ -31,12 +31,22 @@ use crate::state::SigningKey;
 const STAKE_PROGRAM_ID: &str = "Stake11111111111111111111111111111111111111";
 const CLOCK_SYSVAR_ID: &str = "SysvarC1ock11111111111111111111111111111111";
 const STAKE_HISTORY_SYSVAR_ID: &str = "SysvarStakeHistory1111111111111111111111111";
+const RENT_SYSVAR_ID: &str = "SysvarRent111111111111111111111111111111111";
+/// `DelegateStake` still lists the stake config account even though the
+/// program no longer reads it. Omitting it fails the instruction.
+const STAKE_CONFIG_ID: &str = "StakeConfig11111111111111111111111111111111";
 
 /// `StakeInstruction` variant indices. Bincode encodes the enum tag as a
 /// little-endian u32, so the instruction data is the tag followed by any
 /// payload.
+const IX_INITIALIZE: u32 = 0;
+const IX_DELEGATE: u32 = 2;
 const IX_WITHDRAW: u32 = 4;
 const IX_DEACTIVATE: u32 = 5;
+
+/// `StakeStateV2::size_of()`. Every stake account is exactly this large, so
+/// its rent-exempt minimum is a single lookup.
+const STAKE_ACCOUNT_LEN: u64 = 200;
 
 /// Byte offsets into `StakeStateV2`:
 /// tag(4) + rent_exempt_reserve(8) puts the staker at 12, and the withdrawer
@@ -179,6 +189,45 @@ pub(crate) fn withdraw_ix(
             AccountMeta::new_readonly(Pubkey::from_str(CLOCK_SYSVAR_ID).unwrap(), false),
             AccountMeta::new_readonly(Pubkey::from_str(STAKE_HISTORY_SYSVAR_ID).unwrap(), false),
             AccountMeta::new_readonly(*withdraw_authority, true),
+        ],
+    )
+}
+
+/// `Initialize`: sets the stake and withdraw authorities on a freshly created
+/// account. Both are the funding wallet, so no new key material ever exists —
+/// the vault already holds everything needed to unwind the position later.
+pub(crate) fn initialize_ix(stake: &Pubkey, authority: &Pubkey) -> Instruction {
+    let mut data = IX_INITIALIZE.to_le_bytes().to_vec();
+    // Authorized { staker, withdrawer }
+    data.extend_from_slice(authority.as_ref());
+    data.extend_from_slice(authority.as_ref());
+    // Lockup { unix_timestamp: i64, epoch: u64, custodian: Pubkey }, all zero:
+    // an unlocked stake, withdrawable as soon as it has cooled down.
+    data.extend_from_slice(&0i64.to_le_bytes());
+    data.extend_from_slice(&0u64.to_le_bytes());
+    data.extend_from_slice(Pubkey::default().as_ref());
+
+    stake_ix(
+        data,
+        vec![
+            AccountMeta::new(*stake, false),
+            AccountMeta::new_readonly(Pubkey::from_str(RENT_SYSVAR_ID).unwrap(), false),
+        ],
+    )
+}
+
+/// `DelegateStake`: points an initialised stake account at a validator.
+pub(crate) fn delegate_ix(stake: &Pubkey, authority: &Pubkey, vote: &Pubkey) -> Instruction {
+    stake_ix(
+        IX_DELEGATE.to_le_bytes().to_vec(),
+        vec![
+            AccountMeta::new(*stake, false),
+            AccountMeta::new_readonly(*vote, false),
+            AccountMeta::new_readonly(Pubkey::from_str(CLOCK_SYSVAR_ID).unwrap(), false),
+            AccountMeta::new_readonly(Pubkey::from_str(STAKE_HISTORY_SYSVAR_ID).unwrap(), false),
+            // Unused by the program, still required in the account list.
+            AccountMeta::new_readonly(Pubkey::from_str(STAKE_CONFIG_ID).unwrap(), false),
+            AccountMeta::new_readonly(*authority, true),
         ],
     )
 }
@@ -371,6 +420,141 @@ async fn send(rpc: &RpcClient, key: &SigningKey, ix: Instruction) -> Result<Stri
     Ok(sig.to_string())
 }
 
+/* ------------------------------- staking ------------------------------- */
+
+#[derive(Debug, Serialize)]
+pub struct StakeQuote {
+    pub balance: u64,
+    /// Rent-exempt reserve the new stake account must hold. Recoverable when
+    /// the position is eventually withdrawn.
+    pub rent: u64,
+    pub fee: u64,
+    /// The protocol's minimum delegation.
+    pub minimum_delegation: u64,
+    /// The largest amount this wallet can stake while remaining rent-exempt
+    /// itself. Zero when the wallet cannot afford to stake at all.
+    pub max_stakeable: u64,
+}
+
+/// What a wallet can stake right now, and what it costs. Read-only.
+pub async fn quote(
+    rpc: Arc<RpcClient>,
+    owner_pubkey: &str,
+    priority_fee: u64,
+) -> Result<StakeQuote> {
+    let owner = rpc::parse_pubkey(owner_pubkey)?;
+    let balance = rpc.get_balance(&owner).await.map_err(rpc::rpc_err)?;
+    let rent = rpc
+        .get_minimum_balance_for_rent_exemption(STAKE_ACCOUNT_LEN as usize)
+        .await
+        .map_err(rpc::rpc_err)?;
+    let minimum_delegation = rpc
+        .get_stake_minimum_delegation()
+        .await
+        .map_err(rpc::rpc_err)?;
+    let fee = crate::sweep::transfer_fee(&rpc, &owner, priority_fee).await?;
+    // The funding wallet is a fee payer: it must still clear the rent-exempt
+    // floor afterwards or the runtime rejects the whole transaction.
+    let wallet_floor = rpc
+        .get_minimum_balance_for_rent_exemption(0)
+        .await
+        .map_err(rpc::rpc_err)?;
+
+    Ok(StakeQuote {
+        balance,
+        rent,
+        fee,
+        minimum_delegation,
+        max_stakeable: balance.saturating_sub(rent + fee + wallet_floor),
+    })
+}
+
+/// A seed unique enough to avoid colliding with this wallet's existing stake
+/// accounts. Seeds are capped at 32 bytes, so this stays short.
+fn stake_seed(now_secs: u64) -> String {
+    format!("stake:{now_secs}")
+}
+
+/// Create a stake account and delegate it, in one transaction.
+///
+/// The account is derived from the wallet with a seed rather than a fresh
+/// keypair. That matters here: a keypair would be new key material the vault
+/// would have to store and protect, and losing it would strand the stake.
+/// A seed-derived account needs only the wallet's signature and can always be
+/// re-derived, so the vault's contents stay exactly as they were.
+pub async fn create_and_delegate(
+    rpc: Arc<RpcClient>,
+    key: &SigningKey,
+    vote_account: &str,
+    lamports: u64,
+    priority_fee: u64,
+) -> Result<(String, String)> {
+    let owner = rpc::parse_pubkey(&key.pubkey)?;
+    let vote = rpc::parse_pubkey(vote_account)?;
+
+    let quote = quote(rpc.clone(), &key.pubkey, priority_fee).await?;
+    if lamports < quote.minimum_delegation {
+        return Err(AppError::invalid(format!(
+            "the minimum delegation is {} lamports ({:.9} SOL)",
+            quote.minimum_delegation,
+            quote.minimum_delegation as f64 / 1_000_000_000.0
+        )));
+    }
+    if lamports > quote.max_stakeable {
+        return Err(AppError::invalid(format!(
+            "this wallet can stake at most {} lamports once the {} rent reserve, the fee and its \
+             own rent-exempt minimum are covered",
+            quote.max_stakeable, quote.rent
+        )));
+    }
+
+    // Derive an address that is free. A collision only happens if the same
+    // wallet staked in the same second, but stepping the seed is cheaper than
+    // an opaque "account already in use" failure.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
+    let mut seed = stake_seed(now);
+    let mut stake_address = Pubkey::create_with_seed(&owner, &seed, &stake_program())
+        .map_err(|e| AppError::invalid(format!("could not derive a stake address: {e}")))?;
+    for bump in 1..8u64 {
+        if rpc.get_balance(&stake_address).await.unwrap_or(0) == 0 {
+            break;
+        }
+        seed = stake_seed(now + bump);
+        stake_address = Pubkey::create_with_seed(&owner, &seed, &stake_program())
+            .map_err(|e| AppError::invalid(format!("could not derive a stake address: {e}")))?;
+    }
+
+    let instructions = vec![
+        solana_system_interface::instruction::create_account_with_seed(
+            &owner,
+            &stake_address,
+            &owner,
+            &seed,
+            // The account holds the delegation plus its own rent reserve.
+            lamports + quote.rent,
+            STAKE_ACCOUNT_LEN,
+            &stake_program(),
+        ),
+        initialize_ix(&stake_address, &owner),
+        delegate_ix(&stake_address, &owner, &vote),
+    ];
+
+    let keypair = key.keypair()?;
+    let blockhash = rpc.get_latest_blockhash().await.map_err(rpc::rpc_err)?;
+    let mut tx = Transaction::new_unsigned(Message::new(&instructions, Some(&owner)));
+    tx.try_sign(&[&keypair], blockhash)
+        .map_err(|e| AppError::invalid(format!("signing failed: {e}")))?;
+
+    let signature = rpc
+        .send_and_confirm_transaction(&tx)
+        .await
+        .map_err(rpc::rpc_err)?;
+    Ok((signature.to_string(), stake_address.to_string()))
+}
+
 /// Begin cooldown on one stake account.
 pub async fn deactivate(rpc: Arc<RpcClient>, key: &SigningKey, stake: &str) -> Result<String> {
     let stake_pubkey = rpc::parse_pubkey(stake)?;
@@ -460,6 +644,64 @@ mod tests {
         assert!(ix.accounts[1].is_writable, "recipient must be writable");
         assert_eq!(ix.accounts[1].pubkey, destination);
         assert!(ix.accounts[4].is_signer, "withdraw authority must sign");
+    }
+
+    #[test]
+    fn initialize_sets_both_authorities_to_the_wallet() {
+        let stake = Pubkey::new_unique();
+        let authority = Pubkey::new_unique();
+        let ix = initialize_ix(&stake, &authority);
+
+        // tag(4) + staker(32) + withdrawer(32) + lockup(8 + 8 + 32) = 116
+        assert_eq!(ix.data.len(), 116);
+        assert_eq!(&ix.data[0..4], &[0, 0, 0, 0]);
+        // Both authorities are the funding wallet, so unwinding the position
+        // later never needs a key the vault does not already hold.
+        assert_eq!(&ix.data[4..36], authority.as_ref());
+        assert_eq!(&ix.data[36..68], authority.as_ref());
+        // A zero lockup: nothing blocks withdrawal once it has cooled down.
+        assert!(ix.data[68..116].iter().all(|b| *b == 0));
+
+        assert_eq!(ix.accounts.len(), 2);
+        assert!(ix.accounts[0].is_writable);
+    }
+
+    #[test]
+    fn delegate_keeps_the_legacy_config_account() {
+        let stake = Pubkey::new_unique();
+        let authority = Pubkey::new_unique();
+        let vote = Pubkey::new_unique();
+        let ix = delegate_ix(&stake, &authority, &vote);
+
+        assert_eq!(ix.data, vec![2, 0, 0, 0]);
+        // Six accounts, not five: the stake config is unused by the program
+        // but still required in the list, and dropping it fails the
+        // instruction.
+        assert_eq!(ix.accounts.len(), 6);
+        assert_eq!(ix.accounts[1].pubkey, vote);
+        assert_eq!(
+            ix.accounts[4].pubkey,
+            Pubkey::from_str(STAKE_CONFIG_ID).unwrap()
+        );
+        assert!(ix.accounts[5].is_signer, "stake authority must sign");
+    }
+
+    #[test]
+    fn a_seed_derived_stake_address_needs_no_new_keypair() {
+        // The address is a pure function of the wallet, seed and program, so
+        // it can always be re-derived - no key material is created.
+        let owner = Pubkey::new_unique();
+        let seed = stake_seed(1_700_000_000);
+        let a = Pubkey::create_with_seed(&owner, &seed, &stake_program()).unwrap();
+        let b = Pubkey::create_with_seed(&owner, &seed, &stake_program()).unwrap();
+        assert_eq!(a, b, "derivation must be deterministic");
+
+        // Seeds are capped at 32 bytes.
+        assert!(seed.len() <= 32, "seed too long: {}", seed.len());
+        // A different second gives a different account.
+        let other =
+            Pubkey::create_with_seed(&owner, &stake_seed(1_700_000_001), &stake_program()).unwrap();
+        assert_ne!(a, other);
     }
 
     #[test]

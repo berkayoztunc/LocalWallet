@@ -52,8 +52,9 @@ import { CleanupDialog } from "../components/CleanupDialog";
 import { SweepDialog } from "../components/SweepDialog";
 import { SendDialog } from "../components/SendDialog";
 import { FundedCleanupDialog } from "../components/FundedCleanupDialog";
+import { StakeDialog } from "../components/StakeDialog";
 
-type Dialog = "import" | "cleanup" | "funded-cleanup" | "sweep" | "send" | null;
+type Dialog = "import" | "cleanup" | "funded-cleanup" | "sweep" | "send" | "stake" | null;
 
 /**
  * The smallest balance a wallet can actually transact from: the rent-exempt
@@ -76,7 +77,7 @@ export function Dashboard({
   settings: Settings;
   onSettingsChanged: (s: Settings) => void;
   onOpenSettings: () => void;
-  onOpenStake: (focusPubkey?: string) => void;
+  onOpenStake: () => void;
   onLock: () => void;
 }) {
   const [wallets, setWallets] = useState<Wallet[]>([]);
@@ -93,6 +94,7 @@ export function Dashboard({
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [sendTarget, setSendTarget] = useState<Wallet | null>(null);
+  const [stakeTarget, setStakeTarget] = useState<Wallet | null>(null);
   const [version, setVersion] = useState("");
   // Kept in state so the array identity is stable — an inline literal would
   // re-trigger the dialogs' preview effects on every render.
@@ -309,7 +311,7 @@ export function Dashboard({
             Collect all SOL
           </Button>
 
-          <Button onClick={() => onOpenStake()}>Stake</Button>
+          <Button onClick={onOpenStake}>Stake</Button>
 
           <span className="mx-0.5 h-4 w-px bg-ink-600" />
           <Button variant="ghost" onClick={onOpenSettings}>
@@ -503,8 +505,12 @@ export function Dashboard({
                           {!hasRent && <span className="size-6" aria-hidden="true" />}
 
                           <IconButton
-                            label={`Stake accounts for ${w.label}`}
-                            onClick={() => onOpenStake(w.pubkey)}
+                            label={`Stake SOL from ${w.label}`}
+                            tone="brand"
+                            onClick={() => {
+                              setStakeTarget(w);
+                              setDialog("stake");
+                            }}
                           >
                             <IconStake />
                           </IconButton>
@@ -617,6 +623,17 @@ export function Dashboard({
           defaultDestination={settings.destination_pubkey ?? ""}
           onClose={() => setDialog(null)}
           onFinished={refreshBalances}
+        />
+      )}
+      {dialog === "stake" && stakeTarget && (
+        <StakeDialog
+          settings={settings}
+          wallet={stakeTarget}
+          onClose={() => {
+            setDialog(null);
+            setStakeTarget(null);
+          }}
+          onStaked={refreshBalances}
         />
       )}
       {dialog === "send" && sendTarget && (

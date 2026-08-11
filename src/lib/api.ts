@@ -250,12 +250,20 @@ export interface StakeScan {
 export interface StakeProgress {
   address: string;
   label: string;
-  status: "deactivated" | "withdrawn" | "failed";
+  status: "delegated" | "deactivated" | "withdrawn" | "failed";
   lamports: number;
   signature: string | null;
   error: string | null;
   done: number;
   total: number;
+}
+
+export interface StakeQuote {
+  balance: number;
+  rent: number;
+  fee: number;
+  minimum_delegation: number;
+  max_stakeable: number;
 }
 
 export interface Validator {
@@ -351,6 +359,9 @@ export const api = {
       stakeAccount,
       destination: destination ?? null,
     }),
+  stakeQuote: (owner: string) => invoke<StakeQuote>("stake_quote", { owner }),
+  stakeDelegate: (owner: string, voteAccount: string, lamports: number) =>
+    invoke<StakeProgress>("stake_delegate", { owner, voteAccount, lamports }),
   validatorsList: () => invoke<ValidatorList>("validators_list"),
 
   sendQuote: (from: string, destination: string, lamports: number | null) =>

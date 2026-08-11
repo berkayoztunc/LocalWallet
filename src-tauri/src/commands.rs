@@ -13,7 +13,7 @@ use crate::funded_cleanup::{self, FundedCleanupPlan, FundedCleanupProgress};
 use crate::keys::{self, ImportLineError, ImportReport};
 use crate::rpc::{self, RpcHealth};
 use crate::settings::Settings;
-use crate::stake::{self, StakeProgress, StakeScan};
+use crate::stake::{self, StakeProgress, StakeQuote, StakeScan};
 use crate::state::{AppState, Unlocked};
 use crate::sweep::{self, SendQuote, SendResult, SweepPlan, SweepProgress};
 use crate::tokens::{self, CleanupPreview, CleanupProgress, TokenScan};
@@ -384,6 +384,67 @@ pub async fn stake_scan(
     let keys = state.signing_keys(pubkeys.as_deref())?;
     let client = rpc::client(&settings);
     stake::scan(client, &keys, settings.concurrency).await
+}
+
+/// What a wallet can stake right now, and what it costs. Read-only.
+#[tauri::command]
+pub async fn stake_quote(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    owner: String,
+) -> Result<StakeQuote> {
+    let dir = data_dir(&app)?;
+    let settings = state.settings(&dir);
+    let client = rpc::client(&settings);
+    stake::quote(client, &owner, settings.priority_fee_microlamports).await
+}
+
+/// Create a stake account and delegate it to a validator, in one transaction.
+#[tauri::command]
+pub async fn stake_delegate(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    owner: String,
+    vote_account: String,
+    lamports: u64,
+) -> Result<StakeProgress> {
+    let dir = data_dir(&app)?;
+    let settings = state.settings(&dir);
+    let key = signing_key(&state, &owner)?;
+    let client = rpc::client(&settings);
+
+    let progress = match stake::create_and_delegate(
+        client,
+        &key,
+        &vote_account,
+        lamports,
+        settings.priority_fee_microlamports,
+    )
+    .await
+    {
+        Ok((signature, address)) => StakeProgress {
+            address,
+            label: key.label.clone(),
+            status: "delegated".into(),
+            lamports,
+            signature: Some(signature),
+            error: None,
+            done: 1,
+            total: 1,
+        },
+        Err(e) => StakeProgress {
+            address: String::new(),
+            label: key.label.clone(),
+            status: "failed".into(),
+            lamports: 0,
+            signature: None,
+            error: Some(e.to_string()),
+            done: 1,
+            total: 1,
+        },
+    };
+    let _ = app.emit(STAKE_EVENT, progress.clone());
+    Ok(progress)
 }
 
 /// Begin cooldown on one or more stake accounts. Each is a separate
