@@ -56,9 +56,14 @@ function StatusDot({ status }: { status: StakeStatus }) {
 
 export function StakeScreen({
   settings,
+  focusPubkey,
+  onClearFocus,
   onBack,
 }: {
   settings: Settings;
+  /** Set when opened from a wallet row: narrows the list to that wallet. */
+  focusPubkey?: string;
+  onClearFocus: () => void;
   onBack: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("stakes");
@@ -141,6 +146,18 @@ export function StakeScreen({
     }
   }
 
+  const focusedAccounts = useMemo(() => {
+    if (!scan) return [];
+    return focusPubkey
+      ? scan.accounts.filter((a) => a.owner_pubkey === focusPubkey)
+      : scan.accounts;
+  }, [scan, focusPubkey]);
+
+  const focusLabel = useMemo(
+    () => scan?.accounts.find((a) => a.owner_pubkey === focusPubkey)?.owner_label,
+    [scan, focusPubkey],
+  );
+
   const visibleValidators = useMemo(() => {
     if (!validators) return [];
     const q = query.trim().toLowerCase();
@@ -217,8 +234,24 @@ export function StakeScreen({
             <EmptyState title="No stake accounts">
               None of your wallets control a stake account.
             </EmptyState>
+          ) : focusPubkey && focusedAccounts.length === 0 ? (
+            <EmptyState title={`${focusLabel ?? shortKey(focusPubkey)} has no stake accounts`}>
+              <Button variant="ghost" onClick={onClearFocus}>
+                Show all wallets
+              </Button>
+            </EmptyState>
           ) : (
             <>
+              {focusPubkey && (
+                <Banner kind="info">
+                  Showing {focusedAccounts.length} stake account
+                  {focusedAccounts.length === 1 ? "" : "s"} for{" "}
+                  <strong>{focusLabel ?? shortKey(focusPubkey)}</strong> ·{" "}
+                  <button className="underline" onClick={onClearFocus}>
+                    show all {scan.accounts.length}
+                  </button>
+                </Banner>
+              )}
               <Table>
                 <thead>
                   <tr>
@@ -235,7 +268,7 @@ export function StakeScreen({
                   </tr>
                 </thead>
                 <tbody>
-                  {scan.accounts.map((a) => {
+                  {focusedAccounts.map((a) => {
                     const name = a.vote_account ? nameByVote.get(a.vote_account) : undefined;
                     const working = busy === a.address;
                     return (

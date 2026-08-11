@@ -40,6 +40,7 @@ import {
   IconClose,
   IconCopy,
   IconExternal,
+  IconStake,
   IconFund,
   IconSend,
   IconStar,
@@ -75,7 +76,7 @@ export function Dashboard({
   settings: Settings;
   onSettingsChanged: (s: Settings) => void;
   onOpenSettings: () => void;
-  onOpenStake: () => void;
+  onOpenStake: (focusPubkey?: string) => void;
   onLock: () => void;
 }) {
   const [wallets, setWallets] = useState<Wallet[]>([]);
@@ -308,7 +309,7 @@ export function Dashboard({
             Collect all SOL
           </Button>
 
-          <Button onClick={onOpenStake}>Stake</Button>
+          <Button onClick={() => onOpenStake()}>Stake</Button>
 
           <span className="mx-0.5 h-4 w-px bg-ink-600" />
           <Button variant="ghost" onClick={onOpenSettings}>
@@ -500,6 +501,13 @@ export function Dashboard({
                               </IconButton>
                             ))}
                           {!hasRent && <span className="size-6" aria-hidden="true" />}
+
+                          <IconButton
+                            label={`Stake accounts for ${w.label}`}
+                            onClick={() => onOpenStake(w.pubkey)}
+                          >
+                            <IconStake />
+                          </IconButton>
 
                           <IconButton
                             label={

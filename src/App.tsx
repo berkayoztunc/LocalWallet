@@ -14,6 +14,8 @@ export default function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const idleTimer = useRef<number | null>(null);
+  // Set when the Stake screen is opened from a specific wallet row.
+  const [stakeFocus, setStakeFocus] = useState<string | undefined>(undefined);
 
   const enterVault = useCallback(async () => {
     try {
@@ -89,7 +91,14 @@ export default function App() {
   }
 
   if (screen === "stake") {
-    return <StakeScreen settings={settings} onBack={() => setScreen("dashboard")} />;
+    return (
+      <StakeScreen
+        settings={settings}
+        focusPubkey={stakeFocus}
+        onClearFocus={() => setStakeFocus(undefined)}
+        onBack={() => setScreen("dashboard")}
+      />
+    );
   }
 
   if (screen === "settings") {
@@ -107,7 +116,10 @@ export default function App() {
       settings={settings}
       onSettingsChanged={setSettings}
       onOpenSettings={() => setScreen("settings")}
-      onOpenStake={() => setScreen("stake")}
+      onOpenStake={(focusPubkey) => {
+        setStakeFocus(focusPubkey);
+        setScreen("stake");
+      }}
       onLock={lock}
     />
   );

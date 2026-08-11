@@ -132,6 +132,17 @@ export function IconEyeOff(p: IconProps) {
   );
 }
 
+/** Staked SOL — a stack of layers. */
+export function IconStake(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 3 3 7.5l9 4.5 9-4.5z" />
+      <path d="M3 12.5 12 17l9-4.5" />
+      <path d="M3 17 12 21.5 21 17" />
+    </Svg>
+  );
+}
+
 /** Begin cooldown on a stake account — a pause bar. */
 export function IconUnstake(p: IconProps) {
   return (
