@@ -117,6 +117,33 @@ pub fn run() {
             commands::validators_list,
             commands::sweep_run,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        // Closing the window hides it instead of quitting: the menu bar total
+        // is the point of staying resident. Quit is deliberate — the tray's
+        // Quit item, or Cmd+Q.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // The dock icon stays visible while the window is hidden, so
+            // clicking it has to bring the window back. Without this the app
+            // looks unresponsive to a dock click.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            // Silence unused-variable warnings on non-macOS targets.
+            let _ = (app, event);
+        });
 }
