@@ -459,6 +459,22 @@ export function Dashboard({
                 // what the funded flow exists for.
                 const hasRent = (walletTokens?.reclaimable_lamports ?? 0) > 0;
                 const canPay = (balances[w.pubkey] ?? 0) >= FEE_FLOOR_LAMPORTS;
+                // Why the close button is inactive. An empty slot here reads as
+                // a broken button, so every non-closable case says which one it
+                // is — unscanned, no accounts, or accounts nothing can be done
+                // with (held, frozen, or owned by another close authority).
+                const closeBlocked = !walletTokens
+                  ? "Scan this wallet first"
+                  : walletTokens.total_accounts === 0
+                    ? "No token accounts"
+                    : `Nothing to close — ${[
+                        walletTokens.with_balance && `${walletTokens.with_balance} hold a balance`,
+                        walletTokens.frozen_accounts && `${walletTokens.frozen_accounts} frozen`,
+                        walletTokens.locked_accounts &&
+                          `${walletTokens.locked_accounts} locked by another close authority`,
+                      ]
+                        .filter(Boolean)
+                        .join(", ")}`;
                 return (
                   <Fragment key={w.pubkey}>
                     <Tr>
@@ -608,7 +624,11 @@ export function Dashboard({
                                 <IconFund />
                               </IconButton>
                             ))}
-                          {!hasRent && <span className="size-6" aria-hidden="true" />}
+                          {!hasRent && (
+                            <IconButton label={closeBlocked} disabled>
+                              <IconClose />
+                            </IconButton>
+                          )}
 
                           <IconButton
                             label={`Stake SOL from ${w.label}`}

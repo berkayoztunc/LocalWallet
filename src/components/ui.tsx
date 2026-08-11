@@ -70,7 +70,10 @@ export function IconButton({
         "grid size-6 shrink-0 place-items-center text-mist-300 outline-none",
         "transition-colors duration-100 ease-[var(--ease-out)]",
         "hover:bg-ink-700 focus-visible:ring-1 focus-visible:ring-brand-500",
-        "disabled:pointer-events-none disabled:opacity-30",
+        // Not pointer-events-none: a disabled icon button carries the reason
+        // it is disabled in its tooltip, and killing pointer events would hide
+        // exactly the explanation the user is hovering to find.
+        "disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent",
         tone === "brand"
           ? "text-brand-500 hover:text-brand-400"
           : tone === "cyan"
