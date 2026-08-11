@@ -4,6 +4,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import {
   api,
   asAppError,
+  onMenubarRefresh,
   shortKey,
   toSol,
   type Settings,
@@ -101,6 +102,8 @@ export function Dashboard({
   const [cleanupScope, setCleanupScope] = useState<{ pubkeys?: string[]; label?: string }>({});
   const [fundScope, setFundScope] = useState<{ pubkeys?: string[]; label?: string }>({});
   const searchRef = useRef<HTMLInputElement>(null);
+  // Guards the focus listener below: alt-tabbing must not hammer the RPC.
+  const lastRefreshAt = useRef(0);
 
   const loadWallets = useCallback(async () => {
     try {
@@ -116,6 +119,14 @@ export function Dashboard({
     try {
       const list = await api.balancesRefresh();
       setBalances(Object.fromEntries(list.map((b) => [b.pubkey, b.lamports])));
+      lastRefreshAt.current = Date.now();
+      // The menu bar shows the same total, so update it from the same data
+      // rather than making the backend re-read every balance.
+      const total = list.reduce((sum, b) => sum + (b.lamports ?? 0), 0);
+      api.menubarUpdate(total).catch(() => {
+        // A menu bar that cannot update is a cosmetic problem, never a reason
+        // to fail the refresh the user actually asked for.
+      });
     } catch (e) {
       setError(asAppError(e).message);
     } finally {
@@ -142,6 +153,25 @@ export function Dashboard({
   useEffect(() => {
     loadWallets();
   }, [loadWallets]);
+
+  // Reopening the app should show current numbers. Debounced, because macOS
+  // fires focus on every alt-tab and each refresh is a real RPC round trip.
+  useEffect(() => {
+    const REFRESH_AFTER_MS = 30_000;
+    const onFocus = () => {
+      if (Date.now() - lastRefreshAt.current > REFRESH_AFTER_MS) refreshBalances();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refreshBalances]);
+
+  // "Refresh balances" in the tray menu.
+  useEffect(() => {
+    const unlisten = onMenubarRefresh(() => refreshBalances());
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [refreshBalances]);
 
   useEffect(() => {
     let active = true;

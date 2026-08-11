@@ -29,6 +29,8 @@ pub struct AppState {
     /// Cached validator directory. Lives here so one fetch serves the whole
     /// session rather than one per view.
     pub validator_directory: crate::validators::DirectoryCache,
+    /// SOL/USD for the menu bar, refreshed at most once a minute.
+    pub prices: crate::menubar::PriceCache,
 }
 
 /// A keypair pulled out of the vault for signing. Dropping it zeroizes the

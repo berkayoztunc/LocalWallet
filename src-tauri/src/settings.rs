@@ -38,6 +38,11 @@ pub struct Settings {
     /// directory. Off means vote addresses only and no third-party calls at
     /// all - the app then talks to nothing but your RPC.
     pub validator_directory: bool,
+    /// Show the total in the macOS menu bar. This writes the last known total
+    /// to `menubar.json` in cleartext so it can still be shown while the vault
+    /// is locked - the only holdings information this app keeps outside the
+    /// encrypted vault. Turning it off deletes that file.
+    pub menubar: bool,
 }
 
 impl Default for Settings {
@@ -52,6 +57,7 @@ impl Default for Settings {
             explorer: DEFAULT_EXPLORER.to_string(),
             funder_pubkey: None,
             validator_directory: true,
+            menubar: true,
         }
     }
 }
@@ -151,6 +157,7 @@ mod tests {
         // A settings file written before the stake feature must still get the
         // documented default rather than silently disabling the directory.
         assert!(parsed.validator_directory);
+        assert!(parsed.menubar);
     }
 
     #[test]

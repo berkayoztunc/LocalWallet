@@ -22,7 +22,16 @@ I'll acknowledge within a few days. Since this is a small project, fixes ship as
 The app makes requests to two hosts:
 
 1. **The RPC endpoint you configure** — all chain reads and every transaction.
-2. **`api.stakewiz.com`** — validator names, icons and APY estimates for the Stake screen, when the "Look up validator names" setting is on (it is on by default). The request carries no address, no balance and no key; it discloses your IP and that someone running LocalWallet asked for the validator list. It is cached for six hours and can be turned off in Settings, after which the app contacts nothing but your RPC.
+2. **`api.stakewiz.com`** — validator names, icons and APY estimates for the Stake screen, when the "Look up validator names" setting is on (it is on by default). Cached for six hours.
+3. **`api.coingecko.com`** — the SOL price for the menu bar total, when the menu bar is on (it is on by default). Cached for one minute.
+
+Neither third-party request carries an address, a balance or a key. Each discloses your IP and that someone running LocalWallet asked for public market or validator data. Both can be turned off in Settings, after which the app contacts nothing but your RPC.
+
+## What the menu bar writes to disk
+
+Enabling the menu bar writes your **last known total, in SOL and USD, to `menubar.json` in cleartext**. This exists so a number can be shown while the vault is locked, which is impossible otherwise — the wallet addresses needed to compute one are encrypted.
+
+It is the only holdings information this app keeps outside the encrypted vault. Anything that can read your home directory, your backups, or a synced copy of them can read it, and the menu bar itself is visible to anyone who can see your screen. The file holds a total only: no addresses, no keys, no per-wallet detail. Turning the menu bar off in Settings deletes it.
 
 Data from the directory is treated as untrusted decoration. Every figure the app reports about your funds — stake amounts, commission, delinquency — comes from your own RPC, never from the directory.
 

@@ -53,6 +53,7 @@ export interface Settings {
   explorer: string;
   funder_pubkey: string | null;
   validator_directory: boolean;
+  menubar: boolean;
 }
 
 export interface RpcHealth {
@@ -336,6 +337,10 @@ export const api = {
   settingsSet: (settings: Settings) => invoke<Settings>("settings_set", { settings }),
   rpcTest: (url: string) => invoke<RpcHealth>("rpc_test", { url }),
 
+  /** Push a new total into the macOS menu bar. Returns the rendered title. */
+  menubarUpdate: (lamports: number) => invoke<string>("menubar_update", { lamports }),
+  menubarClear: () => invoke<void>("menubar_clear"),
+
   tokensScan: (pubkeys?: string[]) =>
     invoke<TokenScan>("tokens_scan", { pubkeys: pubkeys ?? null }),
 
@@ -381,6 +386,11 @@ export function onSweepProgress(cb: (p: SweepProgress) => void): Promise<Unliste
 
 export function onCleanupProgress(cb: (p: CleanupProgress) => void): Promise<UnlistenFn> {
   return listen<CleanupProgress>("cleanup://progress", (e) => cb(e.payload));
+}
+
+/** Fired when the tray menu's "Refresh balances" item is chosen. */
+export function onMenubarRefresh(cb: () => void): Promise<UnlistenFn> {
+  return listen("menubar://refresh", () => cb());
 }
 
 export function onStakeProgress(cb: (p: StakeProgress) => void): Promise<UnlistenFn> {

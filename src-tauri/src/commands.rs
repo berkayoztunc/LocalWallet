@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::error::{AppError, Result};
 use crate::funded_cleanup::{self, FundedCleanupPlan, FundedCleanupProgress};
 use crate::keys::{self, ImportLineError, ImportReport};
+use crate::menubar;
 use crate::rpc::{self, RpcHealth};
 use crate::settings::Settings;
 use crate::stake::{self, StakeProgress, StakeQuote, StakeScan};
@@ -24,6 +25,8 @@ pub const SWEEP_EVENT: &str = "sweep://progress";
 pub const CLEANUP_EVENT: &str = "cleanup://progress";
 pub const FUNDED_CLEANUP_EVENT: &str = "funded-cleanup://progress";
 pub const STAKE_EVENT: &str = "stake://progress";
+/// Emitted when the tray menu asks the frontend to refresh.
+pub const MENUBAR_REFRESH_EVENT: &str = "menubar://refresh";
 
 fn data_dir(app: &AppHandle) -> Result<PathBuf> {
     app.path()
@@ -384,6 +387,42 @@ pub async fn stake_scan(
     let keys = state.signing_keys(pubkeys.as_deref())?;
     let client = rpc::client(&settings);
     stake::scan(client, &keys, settings.concurrency).await
+}
+
+/// Push a new total into the menu bar and persist it.
+///
+/// The frontend supplies the total because it already has every balance; this
+/// only prices it and updates the tray.
+#[tauri::command]
+pub async fn menubar_update(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    lamports: u64,
+) -> Result<String> {
+    let dir = data_dir(&app)?;
+    let settings = state.settings(&dir);
+    if !settings.menubar {
+        return Ok(String::new());
+    }
+
+    let (title, _) = menubar::refresh(&dir, &state.prices, lamports).await;
+    if let Some(tray) = app.tray_by_id(menubar::TRAY_ID) {
+        let _ = tray.set_title(Some(&title));
+    }
+    Ok(title)
+}
+
+/// Clear the menu bar and take the cached total off disk. Called when the
+/// feature is switched off, so disabling it actually removes the data rather
+/// than merely hiding it.
+#[tauri::command]
+pub async fn menubar_clear(app: AppHandle) -> Result<()> {
+    let dir = data_dir(&app)?;
+    menubar::clear(&dir);
+    if let Some(tray) = app.tray_by_id(menubar::TRAY_ID) {
+        let _ = tray.set_title(None::<&str>);
+    }
+    Ok(())
 }
 
 /// What a wallet can stake right now, and what it costs. Read-only.

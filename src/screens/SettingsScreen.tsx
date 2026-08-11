@@ -83,6 +83,9 @@ export function SettingsScreen({
     setSaving(true);
     try {
       const saved = await api.settingsSet(draft);
+      // Switching the menu bar off has to take the cached total off disk;
+      // leaving the file behind would keep exposing what it was meant to hide.
+      if (!saved.menubar) await api.menubarClear();
       setDraft(saved);
       onSettingsChanged(saved);
       setMessage({ kind: "success", text: "Settings saved." });
@@ -333,6 +336,29 @@ export function SettingsScreen({
 
             {section === "security" && (
               <>
+                <Card className="mb-4">
+                  <CardHeader title="Menu bar" />
+                  <CardBody>
+                    <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-relaxed text-mist-300">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 accent-brand-500"
+                        checked={draft.menubar}
+                        onChange={(e) => update("menubar", e.target.checked)}
+                      />
+                      <span>
+                        <span className="text-mist-50">Show the total in the menu bar.</span> To
+                        keep showing it while the vault is locked, your last known total is written
+                        to <span className="font-mono">menubar.json</span> in cleartext — the only
+                        holdings information this app keeps outside the encrypted vault. Anything
+                        that can read your disk or your backups can read it, and the menu bar itself
+                        is visible to anyone near your screen. Turning this off deletes the file.
+                        Prices come from CoinGecko.
+                      </span>
+                    </label>
+                  </CardBody>
+                </Card>
+
                 <Card className="mb-4">
                   <CardHeader title="Auto-lock" />
                   <CardBody>

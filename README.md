@@ -39,7 +39,8 @@ LocalWallet puts every wallet you own on one screen, does the tedious parts in b
 | **Fund → close → return** | Lend an empty wallet a fee, close its accounts, send the proceeds on. Releases rent that would otherwise be unreachable. |
 | **Collect all SOL** | Drain every wallet into one destination, with a per-wallet preview first. |
 | **Send SOL** | Single transfers from any wallet, with a quote before you sign. |
-| **Stake** | Every stake account your wallets control, with per-row unstake and withdraw, plus a browsable list of all validators. |
+| **Stake** | Every stake account your wallets control, with per-row unstake and withdraw, staking to any validator, plus a browsable list of all validators. |
+| **Menu bar total** | `163.40 SOL · $12,440` in the macOS menu bar, updated whenever balances refresh. Optional. |
 | **Configurable** | Your own RPC endpoint, commitment level, priority fee, concurrency, and a choice of Solana Explorer, Solscan or Orb. |
 
 ## Security
@@ -62,8 +63,9 @@ Two hosts, and you control both:
 |---|---|---|---|
 | All chain data and transactions | **your configured RPC** | addresses, signed transactions | no — it is how the app works |
 | Validator names, icons, APY | **api.stakewiz.com** | nothing but the request itself and your IP | **yes** — Settings → Explorer → uncheck |
+| SOL price for the menu bar | **api.coingecko.com** | nothing but the request itself and your IP | **yes** — Settings → Security → uncheck |
 
-The directory call happens only on the Stake screen's Validators tab, is cached for six hours, and never includes an address, a balance or a key. With it off, validators are listed by vote address and the app makes no request to any host other than your RPC.
+Neither third-party call ever includes an address, a balance or a key. The directory is fetched only on the Stake screen's Validators tab and cached for six hours; the price is fetched at most once a minute. With both off, the app makes no request to any host other than your RPC.
 
 Everything that describes your money — stake amounts, commissions, delinquency — comes from your own RPC either way. The directory supplies names only.
 
@@ -136,6 +138,7 @@ Deactivating and withdrawing use different authorities. If your vault holds one 
 |---|---|
 | `vault.bin` | Encrypted keypairs |
 | `settings.json` | Cleartext, non-sensitive: RPC URL, destination, explorer, concurrency |
+| `menubar.json` | **Cleartext: your last known total in SOL and USD.** Written only while the menu bar is enabled, so it can still show a number when the vault is locked. This is the one place holdings information lives outside the encrypted vault — disable the menu bar in Settings to delete it. |
 
 Reinstalling the app never touches this directory — the path is derived from the bundle identifier, not the app bundle.
 

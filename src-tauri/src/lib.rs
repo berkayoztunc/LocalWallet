@@ -2,6 +2,7 @@ mod commands;
 mod error;
 mod funded_cleanup;
 mod keys;
+mod menubar;
 mod rpc;
 mod settings;
 mod stake;
@@ -11,12 +12,78 @@ mod tokens;
 mod validators;
 mod vault;
 
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{Emitter, Manager};
+
+/// Build the menu bar item and give it the last known total straight away, so
+/// the number is on screen before the window has even opened.
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "Show LocalWallet", true, None::<&str>)?;
+    let refresh = MenuItem::with_id(app, "refresh", "Refresh balances", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &refresh, &quit])?;
+
+    let settings = app
+        .path()
+        .app_data_dir()
+        .map(|dir| settings::load(&dir))
+        .unwrap_or_default();
+
+    // Only read the cached total when the feature is on, so a disabled menu
+    // bar never surfaces holdings even if a stale file is lying around.
+    let title = if settings.menubar {
+        app.path()
+            .app_data_dir()
+            .ok()
+            .and_then(|dir| menubar::cached_title(&dir))
+    } else {
+        None
+    };
+
+    let mut builder = TrayIconBuilder::with_id(menubar::TRAY_ID)
+        .icon(app.default_window_icon().unwrap().clone())
+        .menu(&menu)
+        .show_menu_on_left_click(true);
+    if let Some(title) = title {
+        builder = builder.title(title);
+    }
+
+    builder
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+            // The frontend owns the wallet list, so it does the refreshing.
+            "refresh" => {
+                let _ = app.emit(commands::MENUBAR_REFRESH_EVENT, ());
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
+        .setup(|app| {
+            setup_tray(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::vault_status,
             commands::vault_create,
@@ -31,6 +98,8 @@ pub fn run() {
             commands::balances_refresh,
             commands::settings_get,
             commands::settings_set,
+            commands::menubar_update,
+            commands::menubar_clear,
             commands::rpc_test,
             commands::tokens_scan,
             commands::cleanup_preview,
