@@ -8,7 +8,6 @@ import {
   shortKey,
   toSol,
   type Settings,
-  type TokenScan,
   type Wallet,
   type WalletTokens,
 } from "../lib/api";
@@ -89,8 +88,8 @@ export function Dashboard({
   const [editing, setEditing] = useState<string | null>(null);
   const [draftLabel, setDraftLabel] = useState("");
   const [tokens, setTokens] = useState<Record<string, WalletTokens>>({});
-  const [tokenTotals, setTokenTotals] = useState<TokenScan | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [scanningWallet, setScanningWallet] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
@@ -141,7 +140,6 @@ export function Dashboard({
     setError(null);
     try {
       const scan = await api.tokensScan();
-      setTokenTotals(scan);
       setTokens(Object.fromEntries(scan.wallets.map((w) => [w.pubkey, w])));
     } catch (e) {
       setError(asAppError(e).message);
@@ -149,6 +147,42 @@ export function Dashboard({
       setScanning(false);
     }
   }, []);
+
+  /**
+   * Scan one wallet instead of all of them.
+   *
+   * At 200 wallets a full scan is 400 RPC calls; checking a single wallet
+   * should cost two. Results merge into the map rather than replacing it, so
+   * scanning one row never discards what other rows already found.
+   */
+  const scanWallet = useCallback(async (pubkey: string) => {
+    setScanningWallet(pubkey);
+    setError(null);
+    try {
+      const scan = await api.tokensScan([pubkey]);
+      setTokens((prev) => ({
+        ...prev,
+        ...Object.fromEntries(scan.wallets.map((w) => [w.pubkey, w])),
+      }));
+    } catch (e) {
+      setError(asAppError(e).message);
+    } finally {
+      setScanningWallet(null);
+    }
+  }, []);
+
+  /**
+   * Refresh token counts after an action changed them. A run scoped to a
+   * single wallet only invalidates that wallet, so rescanning every other one
+   * would be hundreds of RPC calls for nothing.
+   */
+  const rescanAfter = useCallback(
+    async (pubkeys?: string[]) => {
+      if (pubkeys?.length === 1) await scanWallet(pubkeys[0]);
+      else await scanTokens();
+    },
+    [scanWallet, scanTokens],
+  );
 
   useEffect(() => {
     loadWallets();
@@ -225,6 +259,19 @@ export function Dashboard({
     () => Object.values(balances).filter((v) => (v ?? 0) > 0).length,
     [balances],
   );
+
+  // Aggregated from the rows actually scanned, so scanning one wallet at a
+  // time builds the same totals a full scan would.
+  const tokenTotals = useMemo(() => {
+    const scanned = Object.values(tokens);
+    if (scanned.length === 0) return null;
+    return {
+      wallets: scanned.length,
+      accounts: scanned.reduce((n, w) => n + w.total_accounts, 0),
+      withBalance: scanned.reduce((n, w) => n + w.with_balance, 0),
+      reclaimable: scanned.reduce((n, w) => n + w.reclaimable_lamports, 0),
+    };
+  }, [tokens]);
 
   // Search matches label or address, so pasting a full pubkey finds its row.
   const visible = useMemo(() => {
@@ -473,9 +520,13 @@ export function Dashboard({
                         )}
                       </Td>
 
+                      {/* The cell is the control: unscanned it offers to scan
+                          just this wallet, scanned it expands the detail. */}
                       <Td className="border-l border-ink-600/60">
-                        {scanning && !walletTokens ? (
-                          <Skeleton className="h-3 w-10" />
+                        {(scanning && !walletTokens) || scanningWallet === w.pubkey ? (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] text-mist-500">
+                            <Spinner /> scanning
+                          </span>
                         ) : walletTokens ? (
                           <button
                             className={cx(
@@ -484,6 +535,11 @@ export function Dashboard({
                               walletTokens.total_accounts > 0 ? "text-cyan-brand" : "text-mist-500",
                             )}
                             aria-expanded={isOpen}
+                            title={
+                              walletTokens.total_accounts > 0
+                                ? "Show token accounts"
+                                : "No token accounts"
+                            }
                             onClick={() => setExpanded(isOpen ? null : w.pubkey)}
                           >
                             {walletTokens.total_accounts}
@@ -491,7 +547,14 @@ export function Dashboard({
                             {walletTokens.total_accounts > 0 && (isOpen ? " ▾" : " ▸")}
                           </button>
                         ) : (
-                          <span className="text-[11px] text-mist-500">—</span>
+                          <button
+                            className="-mx-1 px-1 text-[11px] text-mist-500 outline-none transition-colors hover:bg-ink-700 hover:text-cyan-brand focus-visible:ring-1 focus-visible:ring-brand-500"
+                            title={`Scan ${w.label} for token accounts (2 RPC calls)`}
+                            disabled={scanning}
+                            onClick={() => scanWallet(w.pubkey)}
+                          >
+                            scan
+                          </button>
                         )}
                       </Td>
 
@@ -611,8 +674,11 @@ export function Dashboard({
         <StatusDivider />
         {tokenTotals ? (
           <>
-            <StatusItem value={tokenTotals.total_accounts} label="token accts" tone="cyan" />
-            <StatusItem value={`${toSol(tokenTotals.total_reclaimable_lamports)} reclaimable`} />
+            <StatusItem value={tokenTotals.accounts} label="token accts" tone="cyan" />
+            <StatusItem value={`${toSol(tokenTotals.reclaimable)} reclaimable`} />
+            {tokenTotals.wallets < wallets.length && (
+              <StatusItem value={`${tokenTotals.wallets}/${wallets.length} scanned`} />
+            )}
           </>
         ) : (
           <StatusItem value="tokens not scanned" />
@@ -641,7 +707,7 @@ export function Dashboard({
           onClose={() => setDialog(null)}
           onFinished={async () => {
             await refreshBalances();
-            await scanTokens();
+            await rescanAfter(cleanupScope.pubkeys);
           }}
         />
       )}
@@ -656,7 +722,7 @@ export function Dashboard({
           onOpenSettings={onOpenSettings}
           onFinished={async () => {
             await refreshBalances();
-            await scanTokens();
+            await rescanAfter(fundScope.pubkeys);
           }}
         />
       )}
