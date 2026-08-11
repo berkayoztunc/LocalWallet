@@ -46,6 +46,48 @@ export function Button({
 }
 
 /**
+ * A square icon-only control for dense clusters like table row actions.
+ *
+ * `label` is required and becomes both the tooltip and the accessible name —
+ * an icon with no text is meaningless to a screen reader, and a row of
+ * unlabelled glyphs is a guessing game for everyone else too.
+ */
+export function IconButton({
+  label,
+  tone,
+  className,
+  children,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  label: string;
+  tone?: "brand" | "cyan" | "danger";
+}) {
+  return (
+    <button
+      title={label}
+      aria-label={label}
+      className={cx(
+        "grid size-6 shrink-0 place-items-center text-mist-300 outline-none",
+        "transition-colors duration-100 ease-[var(--ease-out)]",
+        "hover:bg-ink-700 focus-visible:ring-1 focus-visible:ring-brand-500",
+        "disabled:pointer-events-none disabled:opacity-30",
+        tone === "brand"
+          ? "text-brand-500 hover:text-brand-400"
+          : tone === "cyan"
+            ? "text-cyan-brand"
+            : tone === "danger"
+              ? "hover:text-rose-400"
+              : "hover:text-mist-50",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
  * Joins buttons into one segmented control sharing single-pixel borders — the
  * standard desktop toolbar idiom, and the reason the toolbar reads as an
  * application rather than a row of web buttons.

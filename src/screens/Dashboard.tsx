@@ -21,6 +21,7 @@ import {
   Kbd,
   Pill,
   RowActions,
+  IconButton,
   Skeleton,
   Spinner,
   StatusBar,
@@ -34,6 +35,16 @@ import {
   cx,
 } from "../components/ui";
 import { Logo } from "../components/Logo";
+import {
+  IconCheck,
+  IconClose,
+  IconCopy,
+  IconExternal,
+  IconFund,
+  IconSend,
+  IconStar,
+  IconTrash,
+} from "../components/icons";
 import { TokenRow } from "../components/TokenRow";
 import { ImportDialog } from "../components/ImportDialog";
 import { CleanupDialog } from "../components/CleanupDialog";
@@ -339,7 +350,7 @@ export function Dashboard({
                   SOL
                 </Th>
                 <Th className="w-28 border-l border-ink-600">Tokens</Th>
-                <Th className="w-60 border-l border-ink-600" />
+                <Th className="w-44 border-l border-ink-600" />
               </tr>
             </thead>
             <tbody>
@@ -393,13 +404,13 @@ export function Dashboard({
                           <span className="truncate">{shortKey(w.pubkey)}</span>
                           <span
                             className={cx(
-                              "text-[10px] whitespace-nowrap",
+                              "shrink-0",
                               copied === w.pubkey
                                 ? "text-brand-500"
                                 : "text-mist-500 opacity-0 transition-opacity group-hover/copy:opacity-100",
                             )}
                           >
-                            {copied === w.pubkey ? "copied" : "copy"}
+                            {copied === w.pubkey ? <IconCheck size={11} /> : <IconCopy size={11} />}
                           </span>
                         </button>
                       </Td>
@@ -436,83 +447,80 @@ export function Dashboard({
 
                       <Td className="border-l border-ink-600/60">
                         <RowActions>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-brand-500"
+                          <IconButton
+                            label="Send SOL"
+                            tone="brand"
                             onClick={() => {
                               setSendTarget(w);
                               setDialog("send");
                             }}
                           >
-                            Send
-                          </Button>
+                            <IconSend />
+                          </IconButton>
+
+                          {/* A wallet that can pay its own fee closes directly;
+                              one that cannot has to be funded first. Only one
+                              of the two ever shows, so the cluster keeps a
+                              fixed width across rows. */}
                           {hasRent &&
                             (canPay ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-brand-500"
-                                title={`Close empty token accounts and reclaim ${toSol(
-                                  walletTokens.reclaimable_lamports,
-                                )} SOL`}
+                              <IconButton
+                                label={`Close ${walletTokens.empty_accounts} empty token account${
+                                  walletTokens.empty_accounts === 1 ? "" : "s"
+                                } and reclaim ${toSol(walletTokens.reclaimable_lamports)} SOL`}
+                                tone="brand"
                                 onClick={() => {
                                   setCleanupScope({ pubkeys: [w.pubkey], label: w.label });
                                   setDialog("cleanup");
                                 }}
                               >
-                                Close
-                              </Button>
+                                <IconClose />
+                              </IconButton>
                             ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-cyan-brand"
-                                title={
+                              <IconButton
+                                label={
                                   isFunder
                                     ? "The funding wallet cannot fund itself"
-                                    : `Lend this wallet a fee, close its accounts and reclaim ${toSol(
+                                    : `Too empty to pay a fee — lend it one, close its accounts and reclaim ${toSol(
                                         walletTokens.reclaimable_lamports,
                                       )} SOL`
                                 }
+                                tone="cyan"
                                 disabled={isFunder}
                                 onClick={() => {
                                   setFundScope({ pubkeys: [w.pubkey], label: w.label });
                                   setDialog("funded-cleanup");
                                 }}
                               >
-                                Fund
-                              </Button>
+                                <IconFund />
+                              </IconButton>
                             ))}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className={isFunder ? "text-brand-500" : undefined}
-                            title={
+                          {!hasRent && <span className="size-6" aria-hidden="true" />}
+
+                          <IconButton
+                            label={
                               isFunder
                                 ? "This is the funding wallet — click to unset"
                                 : "Use this wallet to fund fees for the others"
                             }
+                            tone={isFunder ? "brand" : undefined}
                             onClick={() => setFunder(isFunder ? null : w.pubkey)}
                           >
-                            {isFunder ? "★" : "☆"}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            title="Open in explorer"
+                            <IconStar filled={isFunder} />
+                          </IconButton>
+
+                          <IconButton
+                            label="Open in explorer"
                             onClick={() => openUrl(addressUrl(settings, w.pubkey))}
                           >
-                            ↗
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="hover:text-rose-400"
-                            onClick={() => remove(w)}
-                          >
-                            Remove
-                          </Button>
+                            <IconExternal />
+                          </IconButton>
+
+                          <span className="mx-0.5 h-4 w-px self-center bg-ink-600" />
+
+                          <IconButton label="Remove from vault" tone="danger" onClick={() => remove(w)}>
+                            <IconTrash />
+                          </IconButton>
                         </RowActions>
                       </Td>
                     </Tr>
