@@ -62,6 +62,22 @@ npm run build
 
 **Test the arithmetic.** Anything involving lamports, fees or rent gets a unit test with realistic values. Several bugs in this project's history were off-by-a-rent-exemption; the tests now pin them.
 
+## Cutting a release
+
+The version lives in `package.json`, `src-tauri/tauri.conf.json` and
+`src-tauri/Cargo.toml`, and CI refuses to build a release when a tag disagrees
+with any of them. Set all three at once rather than editing them by hand:
+
+```bash
+npm run set-version 0.2.3
+cargo check --manifest-path src-tauri/Cargo.toml   # refreshes Cargo.lock
+git commit -am "Release v0.2.3"
+git tag v0.2.3 && git push origin main --tags
+```
+
+The tag must be pushed on a commit that already contains the bump — that is
+what the guard checks. The release is created as a draft for review.
+
 ## Reporting bugs
 
 Include the app version (Settings → bottom of the page), your cluster, and the full error text. Errors from Solana carry the program logs — paste all of them; the failing instruction index is usually the answer.
