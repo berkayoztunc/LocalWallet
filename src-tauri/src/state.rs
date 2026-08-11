@@ -26,6 +26,9 @@ pub struct Unlocked {
 pub struct AppState {
     unlocked: Mutex<Option<Unlocked>>,
     settings: Mutex<Option<Settings>>,
+    /// Cached validator directory. Lives here so one fetch serves the whole
+    /// session rather than one per view.
+    pub validator_directory: crate::validators::DirectoryCache,
 }
 
 /// A keypair pulled out of the vault for signing. Dropping it zeroizes the

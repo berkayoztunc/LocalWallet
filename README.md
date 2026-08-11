@@ -39,6 +39,7 @@ LocalWallet puts every wallet you own on one screen, does the tedious parts in b
 | **Fund → close → return** | Lend an empty wallet a fee, close its accounts, send the proceeds on. Releases rent that would otherwise be unreachable. |
 | **Collect all SOL** | Drain every wallet into one destination, with a per-wallet preview first. |
 | **Send SOL** | Single transfers from any wallet, with a quote before you sign. |
+| **Stake** | Every stake account your wallets control, with per-row unstake and withdraw, plus a browsable list of all validators. |
 | **Configurable** | Your own RPC endpoint, commitment level, priority fee, concurrency, and a choice of Solana Explorer, Solscan or Orb. |
 
 ## Security
@@ -48,10 +49,23 @@ Read this part.
 - **Your keys never reach the interface.** All key material stays in Rust: decrypt → sign → zeroize. The UI only ever receives public keys, balances and signatures. No command in the app can return a private key.
 - **The vault file leaks nothing.** Argon2id (64 MiB, 3 passes) derives the key; the whole wallet list is sealed with XChaCha20-Poly1305 under a fresh nonce on every save. Not the wallet count, not the labels — only the KDF parameters are readable, because they're needed to re-derive the key. A test asserts no plaintext key material appears in the file.
 - **No password recovery.** A wrong password simply fails the AEAD check; no password hash is stored anywhere. Export a backup and keep the password somewhere safe.
-- **No telemetry.** The only network traffic is to the RPC endpoint you configure.
+- **No telemetry.** The app talks to the RPC endpoint you configure. The one exception is the validator directory used by the Stake screen — see [Network access](#network-access) — which is a single, disableable request that sends no address and no key.
 
 > [!WARNING]
 > **This is unaudited software that holds private keys.** It has not been reviewed by a third party. Use it for wallets you own, start on devnet, and try a single low-value wallet on mainnet before pointing it at everything you have. You are responsible for your own keys.
+
+### Network access
+
+Two hosts, and you control both:
+
+| Request | Host | Sends | Optional |
+|---|---|---|---|
+| All chain data and transactions | **your configured RPC** | addresses, signed transactions | no — it is how the app works |
+| Validator names, icons, APY | **api.stakewiz.com** | nothing but the request itself and your IP | **yes** — Settings → Explorer → uncheck |
+
+The directory call happens only on the Stake screen's Validators tab, is cached for six hours, and never includes an address, a balance or a key. With it off, validators are listed by vote address and the app makes no request to any host other than your RPC.
+
+Everything that describes your money — stake amounts, commissions, delinquency — comes from your own RPC either way. The directory supplies names only.
 
 ## Install
 
@@ -105,6 +119,15 @@ Spam and airdrop tokens do this routinely. LocalWallet detects them during the s
 </details>
 
 <details>
+<summary><b>Unstaking, and why it takes days</b></summary>
+
+Deactivating a stake account starts a cooldown that ends with the epoch — roughly two to three days. Only then can the SOL be withdrawn. The Stake screen shows each account's state (`activating`, `active`, `deactivating`, `inactive`) and keeps the withdraw action disabled, with the epoch it unlocks in the tooltip, until it will actually succeed.
+
+Deactivating and withdrawing use different authorities. If your vault holds one but not the other, the action it cannot authorise is disabled and says so, rather than failing on chain.
+
+</details>
+
+<details>
 <summary><b>Where your data lives</b></summary>
 
 `~/Library/Application Support/com.localwallet.app/`
@@ -137,6 +160,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 - [ ] Windows and Linux builds
 - [ ] Signed and notarized macOS releases
 - [ ] Auto-update
+- [ ] Delegating new stake from the app (currently view and unwind only)
 - [ ] SPL token sweeping (currently SOL only)
 - [ ] Seed-phrase import and hardware wallet support
 

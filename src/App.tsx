@@ -5,8 +5,9 @@ import { Setup } from "./screens/Setup";
 import { Unlock } from "./screens/Unlock";
 import { Dashboard } from "./screens/Dashboard";
 import { SettingsScreen } from "./screens/SettingsScreen";
+import { StakeScreen } from "./screens/StakeScreen";
 
-type Screen = "loading" | "setup" | "unlock" | "dashboard" | "settings";
+type Screen = "loading" | "setup" | "unlock" | "dashboard" | "settings" | "stake";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
@@ -87,6 +88,10 @@ export default function App() {
     return <div className="grid min-h-full place-items-center text-mist-300">Loading settings…</div>;
   }
 
+  if (screen === "stake") {
+    return <StakeScreen settings={settings} onBack={() => setScreen("dashboard")} />;
+  }
+
   if (screen === "settings") {
     return (
       <SettingsScreen
@@ -102,6 +107,7 @@ export default function App() {
       settings={settings}
       onSettingsChanged={setSettings}
       onOpenSettings={() => setScreen("settings")}
+      onOpenStake={() => setScreen("stake")}
       onLock={lock}
     />
   );

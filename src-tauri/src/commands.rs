@@ -13,14 +13,17 @@ use crate::funded_cleanup::{self, FundedCleanupPlan, FundedCleanupProgress};
 use crate::keys::{self, ImportLineError, ImportReport};
 use crate::rpc::{self, RpcHealth};
 use crate::settings::Settings;
+use crate::stake::{self, StakeProgress, StakeScan};
 use crate::state::{AppState, Unlocked};
 use crate::sweep::{self, SendQuote, SendResult, SweepPlan, SweepProgress};
 use crate::tokens::{self, CleanupPreview, CleanupProgress, TokenScan};
+use crate::validators::{self, ValidatorList};
 use crate::vault::{self, StoredWallet};
 
 pub const SWEEP_EVENT: &str = "sweep://progress";
 pub const CLEANUP_EVENT: &str = "cleanup://progress";
 pub const FUNDED_CLEANUP_EVENT: &str = "funded-cleanup://progress";
+pub const STAKE_EVENT: &str = "stake://progress";
 
 fn data_dir(app: &AppHandle) -> Result<PathBuf> {
     app.path()
@@ -365,6 +368,123 @@ pub async fn cleanup_run(
     tokens::run(client, keys, settings.concurrency, move |p| {
         let _ = emitter.emit(CLEANUP_EVENT, p);
     })
+    .await
+}
+
+/// Every stake account the vault's wallets control. Two RPC calls per wallet,
+/// so the UI drives this from an explicit action.
+#[tauri::command]
+pub async fn stake_scan(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pubkeys: Option<Vec<String>>,
+) -> Result<StakeScan> {
+    let dir = data_dir(&app)?;
+    let settings = state.settings(&dir);
+    let keys = state.signing_keys(pubkeys.as_deref())?;
+    let client = rpc::client(&settings);
+    stake::scan(client, &keys, settings.concurrency).await
+}
+
+/// Begin cooldown on one or more stake accounts. Each is a separate
+/// transaction, so a failure on one never blocks the rest.
+#[tauri::command]
+pub async fn stake_deactivate(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    accounts: Vec<(String, String)>,
+) -> Result<Vec<StakeProgress>> {
+    let dir = data_dir(&app)?;
+    let settings = state.settings(&dir);
+    let client = rpc::client(&settings);
+    let total = accounts.len();
+    let mut out = Vec::with_capacity(total);
+
+    for (done, (owner, stake_account)) in accounts.into_iter().enumerate() {
+        let key = signing_key(&state, &owner)?;
+        let progress = match stake::deactivate(client.clone(), &key, &stake_account).await {
+            Ok(signature) => StakeProgress {
+                address: stake_account,
+                label: key.label.clone(),
+                status: "deactivated".into(),
+                lamports: 0,
+                signature: Some(signature),
+                error: None,
+                done: done + 1,
+                total,
+            },
+            Err(e) => StakeProgress {
+                address: stake_account,
+                label: key.label.clone(),
+                status: "failed".into(),
+                lamports: 0,
+                signature: None,
+                error: Some(e.to_string()),
+                done: done + 1,
+                total,
+            },
+        };
+        let _ = app.emit(STAKE_EVENT, progress.clone());
+        out.push(progress);
+    }
+    Ok(out)
+}
+
+/// Withdraw a cooled-down stake account back to its owning wallet.
+#[tauri::command]
+pub async fn stake_withdraw(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    owner: String,
+    stake_account: String,
+    destination: Option<String>,
+) -> Result<StakeProgress> {
+    let dir = data_dir(&app)?;
+    let settings = state.settings(&dir);
+    let key = signing_key(&state, &owner)?;
+    let client = rpc::client(&settings);
+    // Default to the owning wallet: the stake came from there, and sending it
+    // anywhere else should be a deliberate, separate step.
+    let destination = destination.unwrap_or_else(|| owner.clone());
+
+    let progress = match stake::withdraw(client, &key, &stake_account, &destination).await {
+        Ok((signature, lamports)) => StakeProgress {
+            address: stake_account,
+            label: key.label.clone(),
+            status: "withdrawn".into(),
+            lamports,
+            signature: Some(signature),
+            error: None,
+            done: 1,
+            total: 1,
+        },
+        Err(e) => StakeProgress {
+            address: stake_account,
+            label: key.label.clone(),
+            status: "failed".into(),
+            lamports: 0,
+            signature: None,
+            error: Some(e.to_string()),
+            done: 1,
+            total: 1,
+        },
+    };
+    let _ = app.emit(STAKE_EVENT, progress.clone());
+    Ok(progress)
+}
+
+/// Every validator, with authoritative numbers from your RPC and optional
+/// names from the public directory.
+#[tauri::command]
+pub async fn validators_list(app: AppHandle, state: State<'_, AppState>) -> Result<ValidatorList> {
+    let dir = data_dir(&app)?;
+    let settings = state.settings(&dir);
+    let client = rpc::client(&settings);
+    validators::list(
+        client,
+        &state.validator_directory,
+        settings.validator_directory,
+    )
     .await
 }
 

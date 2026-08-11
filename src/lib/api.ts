@@ -52,6 +52,7 @@ export interface Settings {
   auto_lock_minutes: number;
   explorer: string;
   funder_pubkey: string | null;
+  validator_directory: boolean;
 }
 
 export interface RpcHealth {
@@ -219,6 +220,66 @@ export interface FundedCleanupProgress {
   total: number;
 }
 
+export type StakeStatus = "activating" | "active" | "deactivating" | "inactive";
+
+export interface StakeAccount {
+  address: string;
+  owner_pubkey: string;
+  owner_label: string;
+  vote_account: string | null;
+  lamports: number;
+  delegated: number;
+  rent_exempt_reserve: number;
+  activation_epoch: number;
+  deactivation_epoch: number | null;
+  status: StakeStatus;
+  /** False when the vault does not hold the key this action needs. */
+  can_deactivate: boolean;
+  can_withdraw: boolean;
+}
+
+export interface StakeScan {
+  accounts: StakeAccount[];
+  current_epoch: number;
+  total_staked: number;
+  total_withdrawable: number;
+  active_count: number;
+  errors: string[];
+}
+
+export interface StakeProgress {
+  address: string;
+  label: string;
+  status: "deactivated" | "withdrawn" | "failed";
+  lamports: number;
+  signature: string | null;
+  error: string | null;
+  done: number;
+  total: number;
+}
+
+export interface Validator {
+  vote_pubkey: string;
+  node_pubkey: string;
+  activated_stake: number;
+  commission: number;
+  delinquent: boolean;
+  epoch_credits: number;
+  /** Directory decoration — absent when the directory is off or unreachable. */
+  name?: string | null;
+  website?: string | null;
+  image?: string | null;
+  apy?: number | null;
+}
+
+export interface ValidatorList {
+  validators: Validator[];
+  total_active_stake: number;
+  delinquent_count: number;
+  directory_used: boolean;
+  directory_error: string | null;
+}
+
 export const LAMPORTS_PER_SOL = 1_000_000_000;
 
 export function toSol(lamports: number | null | undefined): string {
@@ -280,6 +341,18 @@ export const api = {
   fundedCleanupRun: (funder: string, pubkeys?: string[]) =>
     invoke<FundedCleanupProgress[]>("funded_cleanup_run", { funder, pubkeys: pubkeys ?? null }),
 
+  stakeScan: (pubkeys?: string[]) => invoke<StakeScan>("stake_scan", { pubkeys: pubkeys ?? null }),
+  /** `accounts` is a list of [ownerPubkey, stakeAccount] pairs. */
+  stakeDeactivate: (accounts: [string, string][]) =>
+    invoke<StakeProgress[]>("stake_deactivate", { accounts }),
+  stakeWithdraw: (owner: string, stakeAccount: string, destination?: string) =>
+    invoke<StakeProgress>("stake_withdraw", {
+      owner,
+      stakeAccount,
+      destination: destination ?? null,
+    }),
+  validatorsList: () => invoke<ValidatorList>("validators_list"),
+
   sendQuote: (from: string, destination: string, lamports: number | null) =>
     invoke<SendQuote>("send_quote", { from, destination, lamports }),
   sendSol: (from: string, destination: string, lamports: number | null) =>
@@ -297,6 +370,10 @@ export function onSweepProgress(cb: (p: SweepProgress) => void): Promise<Unliste
 
 export function onCleanupProgress(cb: (p: CleanupProgress) => void): Promise<UnlistenFn> {
   return listen<CleanupProgress>("cleanup://progress", (e) => cb(e.payload));
+}
+
+export function onStakeProgress(cb: (p: StakeProgress) => void): Promise<UnlistenFn> {
+  return listen<StakeProgress>("stake://progress", (e) => cb(e.payload));
 }
 
 export function onFundedCleanupProgress(

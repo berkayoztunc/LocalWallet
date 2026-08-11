@@ -279,6 +279,24 @@ export function SettingsScreen({
                     </Banner>
                   )}
 
+                  <div className="mb-3 border border-ink-600 bg-ink-950 p-2.5">
+                    <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-relaxed text-mist-300">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 accent-brand-500"
+                        checked={draft.validator_directory}
+                        onChange={(e) => update("validator_directory", e.target.checked)}
+                      />
+                      <span>
+                        <span className="text-mist-50">Look up validator names</span> from the
+                        public Stakewiz directory. This is the only request the app makes to
+                        anything other than your RPC. It sends no address and no key — only that
+                        someone running LocalWallet asked for the validator list, and your IP.
+                        Turn it off and validators show as vote addresses.
+                      </span>
+                    </label>
+                  </div>
+
                   <div className="border border-ink-600 bg-ink-950 p-3">
                     <div className="mb-1.5 text-[10px] tracking-wider text-mist-500 uppercase">
                       Link preview

@@ -132,6 +132,39 @@ export function IconEyeOff(p: IconProps) {
   );
 }
 
+/** Begin cooldown on a stake account — a pause bar. */
+export function IconUnstake(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M9 5v14" />
+      <path d="M15 5v14" />
+    </Svg>
+  );
+}
+
+/** Withdraw a cooled-down stake back to the wallet — down to a baseline. */
+export function IconWithdraw(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M12 4v10" />
+      <path d="M7.5 9.5 12 14l4.5-4.5" />
+      <path d="M5 19h14" />
+    </Svg>
+  );
+}
+
+/** A validator node. */
+export function IconValidator(p: IconProps) {
+  return (
+    <Svg {...p}>
+      <path d="M4 5h16v5H4z" />
+      <path d="M4 14h16v5H4z" />
+      <path d="M8 7.5h.01" />
+      <path d="M8 16.5h.01" />
+    </Svg>
+  );
+}
+
 /** The vault, locked. Used on the unlock screen. */
 export function IconLock(p: IconProps) {
   return (

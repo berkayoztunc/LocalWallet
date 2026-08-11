@@ -17,6 +17,15 @@ Helpful to include:
 
 I'll acknowledge within a few days. Since this is a small project, fixes ship as a new tagged release, and the advisory is published once users have had a chance to update.
 
+## Network access
+
+The app makes requests to two hosts:
+
+1. **The RPC endpoint you configure** — all chain reads and every transaction.
+2. **`api.stakewiz.com`** — validator names, icons and APY estimates for the Stake screen, when the "Look up validator names" setting is on (it is on by default). The request carries no address, no balance and no key; it discloses your IP and that someone running LocalWallet asked for the validator list. It is cached for six hours and can be turned off in Settings, after which the app contacts nothing but your RPC.
+
+Data from the directory is treated as untrusted decoration. Every figure the app reports about your funds — stake amounts, commission, delinquency — comes from your own RPC, never from the directory.
+
 ## In scope
 
 - **Vault encryption** — key derivation, the AEAD construction, nonce handling, anything that weakens `vault.bin` against an attacker who has the file
@@ -24,6 +33,7 @@ I'll acknowledge within a few days. Since this is a small project, fixes ship as
 - **Transaction construction** — a transaction that sends funds somewhere other than what the UI showed and the user confirmed
 - **Confirmation bypass** — anything that lets a destructive action run without the preview and explicit confirmation it is supposed to require
 - **Supply chain** — a dependency shipping something it shouldn't
+- **The validator directory** — anything that lets its response influence a transaction, an amount, or an address the app acts on
 
 ## Out of scope
 

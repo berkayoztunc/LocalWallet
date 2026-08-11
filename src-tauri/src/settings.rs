@@ -34,6 +34,10 @@ pub struct Settings {
     /// The wallet that lends transaction fees to empty wallets so they can
     /// close their own token accounts. Picked from the vault.
     pub funder_pubkey: Option<String>,
+    /// Look up validator names, icons and APY estimates from a public
+    /// directory. Off means vote addresses only and no third-party calls at
+    /// all - the app then talks to nothing but your RPC.
+    pub validator_directory: bool,
 }
 
 impl Default for Settings {
@@ -47,6 +51,7 @@ impl Default for Settings {
             auto_lock_minutes: 15,
             explorer: DEFAULT_EXPLORER.to_string(),
             funder_pubkey: None,
+            validator_directory: true,
         }
     }
 }
@@ -143,6 +148,9 @@ mod tests {
         assert_eq!(parsed.explorer, DEFAULT_EXPLORER);
         assert_eq!(parsed.concurrency, 4);
         assert_eq!(parsed.funder_pubkey, None);
+        // A settings file written before the stake feature must still get the
+        // documented default rather than silently disabling the directory.
+        assert!(parsed.validator_directory);
     }
 
     #[test]

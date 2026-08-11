@@ -4,9 +4,11 @@ mod funded_cleanup;
 mod keys;
 mod rpc;
 mod settings;
+mod stake;
 mod state;
 mod sweep;
 mod tokens;
+mod validators;
 mod vault;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -38,6 +40,10 @@ pub fn run() {
             commands::send_quote,
             commands::send_sol,
             commands::sweep_preview,
+            commands::stake_scan,
+            commands::stake_deactivate,
+            commands::stake_withdraw,
+            commands::validators_list,
             commands::sweep_run,
         ])
         .run(tauri::generate_context!())

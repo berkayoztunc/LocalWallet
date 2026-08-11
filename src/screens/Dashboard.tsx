@@ -69,11 +69,13 @@ export function Dashboard({
   settings,
   onSettingsChanged,
   onOpenSettings,
+  onOpenStake,
   onLock,
 }: {
   settings: Settings;
   onSettingsChanged: (s: Settings) => void;
   onOpenSettings: () => void;
+  onOpenStake: () => void;
   onLock: () => void;
 }) {
   const [wallets, setWallets] = useState<Wallet[]>([]);
@@ -305,6 +307,8 @@ export function Dashboard({
           <Button variant="primary" onClick={() => setDialog("sweep")} disabled={noWallets}>
             Collect all SOL
           </Button>
+
+          <Button onClick={onOpenStake}>Stake</Button>
 
           <span className="mx-0.5 h-4 w-px bg-ink-600" />
           <Button variant="ghost" onClick={onOpenSettings}>
