@@ -337,7 +337,7 @@ export function SettingsScreen({
             {section === "security" && (
               <>
                 <Card className="mb-4">
-                  <CardHeader title="Menu bar" />
+                  <CardHeader title="Tray total" />
                   <CardBody>
                     <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-relaxed text-mist-300">
                       <input
@@ -347,12 +347,12 @@ export function SettingsScreen({
                         onChange={(e) => update("menubar", e.target.checked)}
                       />
                       <span>
-                        <span className="text-mist-50">Show the total in the menu bar.</span> To
-                        keep showing it while the vault is locked, your last known total is written
-                        to <span className="font-mono">menubar.json</span> in cleartext — the only
+                        <span className="text-mist-50">Show the total on the tray.</span> To keep
+                        showing it while the vault is locked, your last known total is written to{" "}
+                        <span className="font-mono">menubar.json</span> in cleartext — the only
                         holdings information this app keeps outside the encrypted vault. Anything
-                        that can read your disk or your backups can read it, and the menu bar itself
-                        is visible to anyone near your screen. Turning this off deletes the file.
+                        that can read your disk or your backups can read it, and the tray itself is
+                        visible to anyone near your screen. Turning this off deletes the file.
                         Prices come from CoinGecko.
                       </span>
                     </label>

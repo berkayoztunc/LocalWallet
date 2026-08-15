@@ -2,12 +2,14 @@ name: Release
 
 # Push a version tag to cut a release:
 #
-#   npm version 0.3.0 --no-git-tag-version   # then sync tauri.conf.json + Cargo.toml
+#   npm run set-version 0.3.0                # syncs all three manifests
 #   git commit -am "Release v0.3.0"
 #   git tag v0.3.0 && git push origin main --tags
 #
-# The build produces an unsigned .dmg and attaches it to a *draft* release,
-# so nothing goes public until you review and publish it.
+# Builds unsigned installers for macOS, Linux and Windows and attaches them to a
+# *draft* release, so nothing goes public until you review and publish it.
+#
+# The release notes come from .github/release-notes.md.
 on:
   push:
     tags:
@@ -16,20 +18,26 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
-    name: Build macOS (Apple Silicon)
-    runs-on: macos-latest
+  # The draft release is opened once, up front, so the three platform builds
+  # upload into it rather than racing each other to create it.
+  prepare:
+    name: Verify version and open a draft release
+    runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      release_id: ${{ steps.draft.outputs.result }}
 
     steps:
       - uses: actions/checkout@v7
 
-      # A tag that disagrees with the manifests would ship a .dmg whose
-      # filename and in-app version do not match the release. Fail before
-      # spending twenty minutes on a build that has to be thrown away.
+      # A tag that disagrees with the manifests would ship installers whose
+      # filenames and in-app version do not match the release. Fail before
+      # spending an hour on builds that have to be thrown away. This lives in
+      # its own Linux job because the Windows runner would read it as
+      # PowerShell.
       - name: Verify tag matches the app version
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.ref_type == 'tag'
         run: |
           tag="${GITHUB_REF_NAME#v}"
           pkg=$(node -p "require('./package.json').version")
@@ -41,6 +49,102 @@ jobs:
             exit 1
           fi
 
+      # `workflow_dispatch` has no tag to name the release after, so fall back
+      # to the version in the manifests.
+      - name: Work out the release tag
+        id: tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Created here rather than by tauri-action, which would insist on running
+      # a whole build just to open a release. Reuses an existing draft for the
+      # same tag so a re-run does not pile up duplicates.
+      - name: Create the draft release
+        id: draft
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        with:
+          result-encoding: string
+          script: |
+            const fs = require('fs');
+            const tag = process.env.TAG;
+            const body = fs.readFileSync('.github/release-notes.md', 'utf8');
+
+            const { data: releases } = await github.rest.repos.listReleases({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            const existing = releases.find((r) => r.tag_name === tag);
+            if (existing) {
+              core.info(`Reusing release ${existing.id} for ${tag}`);
+              return String(existing.id);
+            }
+
+            const { data: created } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `LocalWallet ${tag}`,
+              body,
+              draft: true,
+              prerelease: false,
+            });
+            return String(created.id);
+
+  build:
+    needs: prepare
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    strategy:
+      # One platform failing should not throw away the other two builds.
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple Silicon)
+            runner: macos-latest
+            args: --target aarch64-apple-darwin
+            rust-targets: aarch64-apple-darwin
+          # 22.04 rather than latest, deliberately: Tauri links against whatever
+          # glibc the runner ships, so building on a newer Ubuntu would silently
+          # raise the minimum glibc and break older distros. 22.04 is the oldest
+          # base carrying libwebkit2gtk-4.1.
+          - name: Linux (x64)
+            runner: ubuntu-22.04
+            args: --bundles deb,appimage
+            rust-targets: ''
+          - name: Windows (x64)
+            runner: windows-latest
+            args: --bundles nsis
+            rust-targets: ''
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # webkit2gtk is the webview; libayatana-appindicator is what puts the tray
+      # icon on the panel. Without the latter the app builds but has no tray.
+      - name: Install Linux build dependencies
+        if: matrix.runner == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            libssl-dev \
+            pkg-config \
+            file
+
       - uses: actions/setup-node@v6
         with:
           node-version: lts/*
@@ -49,12 +153,13 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: ${{ matrix.rust-targets }}
 
       - name: Cache cargo
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          key: ${{ matrix.runner }}
 
       - name: Install frontend dependencies
         run: npm ci
@@ -63,35 +168,10 @@ jobs:
       - name: Tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      - name: Build and draft release
+      - name: Build and upload
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: --target aarch64-apple-darwin
-          tagName: ${{ github.ref_name }}
-          releaseName: LocalWallet ${{ github.ref_name }}
-          releaseDraft: true
-          prerelease: false
-          releaseBody: |
-            ## Install
-
-            Download the `.dmg` below, open it, and drag **LocalWallet** to Applications.
-
-            This build is **not signed with an Apple Developer ID**, so macOS will
-            refuse to open it the first time. Either:
-
-            - double-click it, dismiss the warning, then go to **System Settings →
-              Privacy & Security** and click **Open Anyway**; or
-            - run `xattr -dr com.apple.quarantine /Applications/LocalWallet.app`
-
-            On macOS 15 and later, right-clicking → *Open* no longer works — Apple
-            removed that bypass.
-
-            Apple Silicon only. Your vault lives in
-            `~/Library/Application Support/com.localwallet.app/` and is untouched by
-            reinstalling.
-
-            ---
-
-            See the commit history for what changed in this version.
+          args: ${{ matrix.args }}
+          releaseId: ${{ needs.prepare.outputs.release_id }}

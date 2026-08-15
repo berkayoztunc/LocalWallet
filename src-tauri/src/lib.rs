@@ -25,6 +25,14 @@ pub struct TrayMenu {
     pub refresh: MenuItem<tauri::Wry>,
 }
 
+/// Whether a tray icon actually made it onto the desktop.
+///
+/// It always does on macOS and Windows. On Linux it depends on the desktop
+/// having a StatusNotifier host — a stock GNOME session has none without an
+/// AppIndicator extension. That distinction decides what closing the window
+/// means, so it is worth carrying around: see `on_window_event` in [`run`].
+pub struct TrayAvailable(pub bool);
+
 /// Set the status line at the top of the tray menu.
 fn set_status(app: &AppHandle, status: &menubar::Status) {
     if let Some(menu) = app.try_state::<TrayMenu>() {
@@ -49,7 +57,7 @@ pub fn sync_menu(app: &AppHandle) {
     }
 }
 
-/// Refresh balances and update the menu bar, without touching the window.
+/// Refresh balances and update the tray total, without touching the window.
 ///
 /// The wallet list lives in `AppState`, not the webview, so this runs whether
 /// the window is open, hidden or never shown. That is the entire point: the
@@ -86,17 +94,17 @@ async fn refresh_from_tray(app: AppHandle) {
 
     let (title, cached) = menubar::refresh(&dir, &state.prices, total).await;
     if let Some(tray) = app.tray_by_id(menubar::TRAY_ID) {
-        let _ = tray.set_title(Some(&title));
+        menubar::set_tray_total(&tray, Some(&title));
     }
     set_status(&app, &menubar::Status::Updated(cached.updated_at));
 
     // Keep an open window in step. Without this the table would show figures
-    // the menu bar has already superseded.
+    // the tray has already superseded.
     let _ = app.emit(commands::BALANCES_CHANGED_EVENT, ());
 }
 
-/// Build the menu bar item and give it the last known total straight away, so
-/// the number is on screen before the window has even opened.
+/// Build the tray item and give it the last known total straight away, so the
+/// number is on screen before the window has even opened.
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     // Disabled: a read-only line reporting when the total was last updated.
     let status = MenuItem::with_id(
@@ -134,8 +142,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .map(|dir| settings::load(&dir))
         .unwrap_or_default();
 
-    // Only read the cached total when the feature is on, so a disabled menu
-    // bar never surfaces holdings even if a stale file is lying around.
+    // Only read the cached total when the feature is on, so a disabled tray
+    // total never surfaces holdings even if a stale file is lying around.
     let title = if settings.menubar {
         app.path()
             .app_data_dir()
@@ -145,12 +153,27 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         None
     };
 
+    // `show_menu_on_left_click` is a no-op on Linux, where the menu always
+    // opens on left click anyway.
     let mut builder = TrayIconBuilder::with_id(menubar::TRAY_ID)
-        .icon(app.default_window_icon().unwrap().clone())
         .menu(&menu)
         .show_menu_on_left_click(true);
+    // Every bundle ships an icon, so this should always be `Some` — but a
+    // panic during setup would take the whole app down over a picture.
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
     if let Some(title) = title {
-        builder = builder.title(title);
+        // Same split as `menubar::set_tray_total`: Windows has no tray title,
+        // macOS and Linux have no tray tooltip worth the name.
+        #[cfg(not(target_os = "windows"))]
+        {
+            builder = builder.title(title);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            builder = builder.tooltip(title);
+        }
     }
 
     builder
@@ -183,7 +206,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         .setup(|app| {
-            setup_tray(app)?;
+            // A tray that will not build is a degraded app, not a dead one, so
+            // this records the failure rather than aborting startup.
+            let tray = setup_tray(app);
+            if let Err(e) = &tray {
+                eprintln!("tray unavailable: {e}");
+            }
+            app.manage(TrayAvailable(tray.is_ok()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -219,13 +248,19 @@ pub fn run() {
             commands::validators_list,
             commands::sweep_run,
         ])
-        // Closing the window hides it instead of quitting: the menu bar total
-        // is the point of staying resident. Quit is deliberate — the tray's
-        // Quit item, or Cmd+Q.
+        // Closing the window hides it instead of quitting: the tray total is
+        // the point of staying resident. Quit is deliberate — the tray's Quit
+        // item, or Cmd+Q.
+        //
+        // Unless there is no tray. Then "Show LocalWallet" does not exist
+        // either, and hiding would strand a running process with no way back —
+        // so the close is allowed through and the app exits like any other.
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                if window.state::<TrayAvailable>().0 {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .build(tauri::generate_context!())

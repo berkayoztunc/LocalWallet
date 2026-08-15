@@ -12,11 +12,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Every platform the release ships, so a break on one of them shows up in a
+  # pull request rather than in a tagged build. Clippy runs everywhere too: the
+  # tray code branches on `cfg(target_os)`, which is exactly the code a
+  # macOS-only lint pass would never see.
   rust:
-    name: Rust (test, fmt, clippy)
-    runs-on: macos-latest
+    name: Rust on ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            runner: macos-latest
+          # 22.04 to match the release build's glibc baseline.
+          - name: Linux
+            runner: ubuntu-22.04
+          - name: Windows
+            runner: windows-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        if: matrix.runner == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            libssl-dev \
+            pkg-config \
+            file
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -27,8 +57,11 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          key: ${{ matrix.runner }}
 
+      # Formatting is platform-independent, so one run is enough.
       - name: Formatting
+        if: matrix.runner == 'macos-latest'
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 
       - name: Clippy
