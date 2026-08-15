@@ -1,7 +1,8 @@
-//! The macOS menu bar total.
+//! The tray total.
 //!
-//! Shows `163.4 SOL · $12,438` next to the tray icon, and keeps showing it
-//! after the vault locks or the app restarts.
+//! Shows `163.4 SOL · $12,438` on the tray, and keeps showing it after the
+//! vault locks or the app restarts. Where it appears depends on what the
+//! platform offers — see [`set_tray_total`].
 //!
 //! That last part is a deliberate trade. The vault encrypts wallet addresses,
 //! so a locked app cannot compute a balance — it can only display a number
@@ -23,7 +24,7 @@ use crate::error::{AppError, Result};
 const PRICE_URL: &str =
     "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd";
 
-/// The menu bar is glanceable, not a trading screen. One price a minute is
+/// The tray total is glanceable, not a trading screen. One price a minute is
 /// plenty and keeps well inside CoinGecko's free rate limit.
 const PRICE_TTL: Duration = Duration::from_secs(60);
 
@@ -63,7 +64,7 @@ pub enum Status {
 /// Render the status line.
 ///
 /// Pure, so the wording is pinned by tests rather than discovered in a menu.
-/// The failure case deliberately keeps the previous timestamp: a menu bar that
+/// The failure case deliberately keeps the previous timestamp: a tray that
 /// forgets when it was last right is worse than one that admits it is stale.
 pub fn status_line(status: &Status) -> String {
     match status {
@@ -139,16 +140,32 @@ impl PriceCache {
     }
 }
 
-/// Format the menu bar title.
+/// Show the total on the tray, whichever way this platform can.
+///
+/// `set_title` writes text beside the icon on macOS and Linux but does nothing
+/// on Windows; `set_tooltip` is the reverse, working on Windows and macOS but
+/// not on Linux. Routing through one helper means the number reaches the user
+/// on all three, and the call sites do not have to remember which is which.
+///
+/// Failures are swallowed deliberately. A tray that will not take a title is a
+/// cosmetic problem, never a reason to fail a balance refresh.
+pub fn set_tray_total(tray: &tauri::tray::TrayIcon, title: Option<&str>) {
+    #[cfg(not(target_os = "windows"))]
+    let _ = tray.set_title(title);
+    #[cfg(target_os = "windows")]
+    let _ = tray.set_tooltip(title);
+}
+
+/// Format the tray title.
 ///
 /// Pure, so the awkward cases are unit tested rather than discovered in the
-/// menu bar: a missing price must degrade to SOL alone rather than blanking,
-/// and the string has to stay short enough that macOS does not truncate it.
+/// tray: a missing price must degrade to SOL alone rather than blanking, and
+/// the string has to stay short enough that macOS does not truncate it.
 pub fn format_title(lamports: u64, usd_price: Option<f64>) -> String {
     let sol = lamports as f64 / LAMPORTS_PER_SOL;
 
     // Precision tracks magnitude: small balances need decimals to say anything
-    // at all, large ones would waste menu bar width on them.
+    // at all, large ones would waste tray width on them.
     let sol_text = if sol >= 1000.0 {
         format!("{} SOL", thousands(sol.round() as u64))
     } else if sol >= 1.0 {
@@ -215,11 +232,11 @@ pub fn clear(data_dir: &Path) {
     let _ = std::fs::remove_file(cache_path(data_dir));
 }
 
-/// Price the total, update the tray title, and persist it.
+/// Price the total, render it, and persist it.
 ///
 /// A price failure is not an error: the title falls back to SOL only. A wallet
-/// app that blanks its menu bar because a price API hiccuped would be worse
-/// than one showing less.
+/// app that blanks its tray because a price API hiccuped would be worse than
+/// one showing less.
 pub async fn refresh(data_dir: &Path, prices: &PriceCache, lamports: u64) -> (String, Cached) {
     let usd_price = prices.get().await.ok();
     let title = format_title(lamports, usd_price);
@@ -255,7 +272,7 @@ mod tests {
 
     #[test]
     fn title_pairs_sol_with_usd() {
-        // 163.4 SOL at $76 -> the shape the menu bar is designed around.
+        // 163.4 SOL at $76 -> the shape the tray total is designed around.
         assert_eq!(
             format_title(163_400_000_000, Some(76.13)), // 163.4 SOL
             "163.40 SOL · $12,440"
@@ -273,7 +290,7 @@ mod tests {
     fn precision_tracks_magnitude() {
         // Dust would read as "0.00 SOL" at two decimals, which is a lie.
         assert_eq!(format_title(12_300_000, None), "0.0123 SOL");
-        // Large balances waste menu bar width on decimals.
+        // Large balances waste tray width on decimals.
         assert_eq!(format_title(12_345 * SOL, None), "12,345 SOL");
         assert_eq!(format_title(0, Some(76.0)), "0 SOL · $0.00");
     }
@@ -300,7 +317,7 @@ mod tests {
 
     #[test]
     fn a_failure_keeps_the_last_good_timestamp() {
-        // A menu bar that forgets when it was last right is worse than one
+        // A tray that forgets when it was last right is worse than one
         // that admits it is stale, so the previous success survives an error.
         let failed = status_line(&Status::Failed {
             reason: "RPC unreachable".into(),

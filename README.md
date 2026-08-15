@@ -10,7 +10,7 @@ Encrypted on your machine. Keys never leave it.
 [![License: MIT](https://img.shields.io/badge/License-MIT-01EEC5.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/berkayoztunc/LocalWallet?include_prereleases&color=01EEC5)](https://github.com/berkayoztunc/LocalWallet/releases)
 [![CI](https://github.com/berkayoztunc/LocalWallet/actions/workflows/ci.yml/badge.svg)](https://github.com/berkayoztunc/LocalWallet/actions/workflows/ci.yml)
-[![Platform](https://img.shields.io/badge/macOS-Apple%20Silicon-01EEC5)](https://github.com/berkayoztunc/LocalWallet/releases)
+[![Platform](https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-01EEC5)](https://github.com/berkayoztunc/LocalWallet/releases)
 
 </div>
 
@@ -40,7 +40,7 @@ LocalWallet puts every wallet you own on one screen, does the tedious parts in b
 | **Collect all SOL** | Drain every wallet into one destination, with a per-wallet preview first. |
 | **Send SOL** | Single transfers from any wallet, with a quote before you sign. |
 | **Stake** | Every stake account your wallets control, with per-row unstake and withdraw, staking to any validator, plus a browsable list of all validators. |
-| **Menu bar total** | `163.40 SOL · $12,440` in the macOS menu bar, updated whenever balances refresh. Optional. |
+| **Tray total** | `163.40 SOL · $12,440` on the menu bar (macOS), the panel (Linux) or on hover (Windows), updated whenever balances refresh. Optional. |
 | **Configurable** | Your own RPC endpoint, commitment level, priority fee, concurrency, and a choice of Solana Explorer, Solscan or Orb. |
 
 ## Security
@@ -71,7 +71,11 @@ Everything that describes your money — stake amounts, commissions, delinquency
 
 ## Install
 
-Download the latest `.dmg` from [**Releases**](https://github.com/berkayoztunc/LocalWallet/releases), open it, and drag **LocalWallet** to Applications.
+Grab the build for your platform from [**Releases**](https://github.com/berkayoztunc/LocalWallet/releases). Nothing is code-signed on any platform, so each one has a first-run hurdle — details below.
+
+### macOS (Apple Silicon)
+
+Download the `.dmg`, open it, and drag **LocalWallet** to Applications.
 
 macOS will refuse to open it the first time. The build is **not signed with an Apple Developer ID**, so Gatekeeper treats it as unidentified — expected for open-source software distributed outside the App Store. Pick either:
 
@@ -90,6 +94,27 @@ This strips the quarantine flag macOS adds to downloaded files. It is the same t
 Building from source avoids the warning entirely, since locally built apps are never quarantined.
 
 Apple Silicon only for now.
+
+### Windows (x64)
+
+Download the `.exe` setup and run it. The build is **not code-signed**, so SmartScreen shows *Windows protected your PC*: click **More info → Run anyway**.
+
+Windows tray icons cannot carry text, so the total appears when you hover the icon rather than beside it. Everything else works the same.
+
+### Linux (x64)
+
+Two formats, both x86-64:
+
+```bash
+# AppImage — runs anywhere, nothing to install
+chmod +x LocalWallet_*.AppImage
+./LocalWallet_*.AppImage
+
+# .deb — Debian, Ubuntu and derivatives
+sudo apt install ./LocalWallet_*.deb
+```
+
+The tray total needs a desktop that speaks AppIndicator. KDE, Cinnamon, Budgie and Unity do out of the box; **GNOME does not** — install the [AppIndicator and KStatusNotifierItem Support](https://extensions.gnome.org/extension/615/appindicator-support/) extension. Without a tray the app still works fully; closing the window then quits it rather than hiding it to an icon that is not there.
 
 ## Getting started
 
@@ -139,13 +164,17 @@ Deactivating and withdrawing use different authorities. If your vault holds one 
 <details>
 <summary><b>Where your data lives</b></summary>
 
-`~/Library/Application Support/com.localwallet.app/`
+| Platform | Directory |
+|---|---|
+| macOS | `~/Library/Application Support/com.localwallet.app/` |
+| Linux | `~/.local/share/com.localwallet.app/` |
+| Windows | `%APPDATA%\com.localwallet.app\` |
 
 | File | Contents |
 |---|---|
 | `vault.bin` | Encrypted keypairs |
 | `settings.json` | Cleartext, non-sensitive: RPC URL, destination, explorer, concurrency |
-| `menubar.json` | **Cleartext: your last known total in SOL and USD.** Written only while the menu bar is enabled, so it can still show a number when the vault is locked. This is the one place holdings information lives outside the encrypted vault — disable the menu bar in Settings to delete it. |
+| `menubar.json` | **Cleartext: your last known total in SOL and USD.** Written only while the tray total is enabled, so it can still show a number when the vault is locked. This is the one place holdings information lives outside the encrypted vault — disable the tray total in Settings to delete it. |
 
 Reinstalling the app never touches this directory — the path is derived from the bundle identifier, not the app bundle.
 
@@ -153,7 +182,11 @@ Reinstalling the app never touches this directory — the path is derived from t
 
 ## Build from source
 
-Requires [Node.js](https://nodejs.org) (LTS), [Rust](https://rustup.rs), and Xcode Command Line Tools.
+Requires [Node.js](https://nodejs.org) (LTS) and [Rust](https://rustup.rs) everywhere, plus per platform:
+
+- **macOS** — Xcode Command Line Tools (`xcode-select --install`)
+- **Windows** — [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) (already present on Windows 11)
+- **Linux** — `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libgtk-3-dev librsvg2-dev patchelf build-essential libssl-dev pkg-config`
 
 ```bash
 git clone https://github.com/berkayoztunc/LocalWallet.git
@@ -161,14 +194,17 @@ cd LocalWallet
 npm install
 
 npm run tauri dev      # hot-reloading dev build
-npm run tauri build    # .app + .dmg in src-tauri/target/release/bundle/
+npm run tauri build    # installers in src-tauri/target/release/bundle/
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+Release builds for all three platforms are produced by GitHub Actions — see `.github/workflows/release.yml`. Nothing has to be built locally to cut a release.
+
 ## Roadmap
 
-- [ ] Windows and Linux builds
+- [x] Windows and Linux builds
 - [ ] Signed and notarized macOS releases
+- [ ] Signed Windows installers
 - [ ] Auto-update
 - [ ] Delegating new stake from the app (currently view and unwind only)
 - [ ] SPL token sweeping (currently SOL only)

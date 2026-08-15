@@ -403,7 +403,7 @@ pub async fn stake_scan(
     stake::scan(client, &keys, settings.concurrency).await
 }
 
-/// Push a new total into the menu bar and persist it.
+/// Push a new total into the tray and persist it.
 ///
 /// The frontend supplies the total because it already has every balance; this
 /// only prices it and updates the tray.
@@ -421,12 +421,12 @@ pub async fn menubar_update(
 
     let (title, _) = menubar::refresh(&dir, &state.prices, lamports).await;
     if let Some(tray) = app.tray_by_id(menubar::TRAY_ID) {
-        let _ = tray.set_title(Some(&title));
+        menubar::set_tray_total(&tray, Some(&title));
     }
     Ok(title)
 }
 
-/// Clear the menu bar and take the cached total off disk. Called when the
+/// Clear the tray total and take the cached figure off disk. Called when the
 /// feature is switched off, so disabling it actually removes the data rather
 /// than merely hiding it.
 #[tauri::command]
@@ -434,7 +434,7 @@ pub async fn menubar_clear(app: AppHandle) -> Result<()> {
     let dir = data_dir(&app)?;
     menubar::clear(&dir);
     if let Some(tray) = app.tray_by_id(menubar::TRAY_ID) {
-        let _ = tray.set_title(None::<&str>);
+        menubar::set_tray_total(&tray, None);
     }
     Ok(())
 }

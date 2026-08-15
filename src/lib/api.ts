@@ -337,7 +337,7 @@ export const api = {
   settingsSet: (settings: Settings) => invoke<Settings>("settings_set", { settings }),
   rpcTest: (url: string) => invoke<RpcHealth>("rpc_test", { url }),
 
-  /** Push a new total into the macOS menu bar. Returns the rendered title. */
+  /** Push a new total onto the tray. Returns the rendered title. */
   menubarUpdate: (lamports: number) => invoke<string>("menubar_update", { lamports }),
   menubarClear: () => invoke<void>("menubar_clear"),
 

@@ -7,7 +7,7 @@ Thanks for taking a look. This is a small project with a narrow scope: managing 
 
 ## Getting set up
 
-You need [Node.js](https://nodejs.org) (LTS), [Rust](https://rustup.rs) (stable), and Xcode Command Line Tools.
+You need [Node.js](https://nodejs.org) (LTS) and [Rust](https://rustup.rs) (stable), plus a platform toolchain: Xcode Command Line Tools on macOS, MSVC Build Tools + WebView2 on Windows, or `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libgtk-3-dev librsvg2-dev patchelf build-essential libssl-dev pkg-config` on Debian/Ubuntu.
 
 ```bash
 git clone https://github.com/berkayoztunc/LocalWallet.git
@@ -16,7 +16,7 @@ npm install
 npm run tauri dev
 ```
 
-The dev build uses the same vault as the installed app (`~/Library/Application Support/com.localwallet.app/`). If you'd rather not touch your real vault, change `identifier` in `src-tauri/tauri.conf.json` locally — but don't commit that change.
+The dev build uses the same vault as the installed app — `~/Library/Application Support/com.localwallet.app/` on macOS, `~/.local/share/com.localwallet.app/` on Linux, `%APPDATA%\com.localwallet.app\` on Windows. If you'd rather not touch your real vault, change `identifier` in `src-tauri/tauri.conf.json` locally — but don't commit that change.
 
 ## Project layout
 
