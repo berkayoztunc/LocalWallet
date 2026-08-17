@@ -116,6 +116,11 @@ export function openPrivacySession(pubkey: string, rpcUrl: string): Promise<Priv
   if (existing) return existing;
 
   const opening = (async () => {
+    // Native confirmation, naming the wallet, before the backend will issue
+    // the sign-in signature at all — see privacy_authorize in commands.rs for
+    // why that ask cannot be answered from inside the webview.
+    await invoke("privacy_authorize", { pubkey });
+
     const message = new TextEncoder().encode(SIGN_IN_MESSAGE);
     const signature = await invoke<number[]>("privacy_sign_in", {
       pubkey,
@@ -249,9 +254,14 @@ export async function shield(session: PrivacySession, lamports: number): Promise
       keyBasePath: CIRCUIT_BASE_PATH,
       storage: session.storage,
       transactionSigner: async (tx: VersionedTransaction) => {
+        // `lamports` is what the review screen showed and the user confirmed;
+        // the backend checks the transaction it is signing deposits exactly
+        // this amount, so a compromised dependency cannot inflate it after
+        // approval — only the shape of the deposit is still theirs to choose.
         const signed = await invoke<number[]>("privacy_sign_transaction", {
           pubkey: session.pubkey,
           transaction: Array.from(tx.serialize()),
+          expectedLamports: lamports,
         });
         return VersionedTransaction.deserialize(new Uint8Array(signed));
       },

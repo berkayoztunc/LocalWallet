@@ -95,8 +95,10 @@ export function PrivacyDialog({
     }
   }, []);
 
-  // Opening asks the backend for one signature, which is what derives the key
-  // the notes are encrypted under. Nothing can be priced before it lands.
+  // Opening shows a native confirmation naming the wallet, then asks the
+  // backend for one signature, which is what derives the key the notes are
+  // encrypted under. Nothing can be priced before both land. Declining the
+  // native dialog surfaces as an error here, same as any other failed open.
   useEffect(() => {
     if (phase !== "opening") return;
     let cancelled = false;
@@ -253,7 +255,8 @@ export function PrivacyDialog({
             <p className="mb-3 flex items-center gap-2 text-[11px] text-mist-500">
               <Spinner />
               <span className="truncate">
-                {status || "Deriving this wallet's pool key and reading its notes…"}
+                {status ||
+                  "Check for a system dialog asking to approve Privacy Cash for this wallet…"}
               </span>
             </p>
           )}
@@ -398,11 +401,14 @@ function Disclosure() {
         </li>
         <li>
           <span className="text-mist-50">Shielded funds get weaker protection than the rest.</span>{" "}
-          Your wallet key stays in the vault, but the proving code runs in this window and holds
-          what is needed to move your shielded balance — unavoidably, because it cannot generate
-          the proof otherwise. So the pool balance is only as safe as this app's third-party
-          JavaScript, while your ordinary SOL is not exposed that way. A leaked credential stays
-          valid after you lock the vault or change your password.
+          Your wallet key stays in the vault, but the proving code running in this window needs
+          what amounts to spend authority over your shielded balance to generate a proof at all —
+          there is no way to keep that out of the interface and still let it work. A system
+          confirmation naming the wallet is what stands between the interface and that access; the
+          access itself, once granted, lasts 15 minutes for that one wallet, and does not survive
+          locking the vault. It cannot be revoked once it has leaked, though, so the pool balance is
+          only as safe as this app's third-party JavaScript for that window — your ordinary SOL is
+          not exposed that way at all.
         </li>
       </ul>
     </div>

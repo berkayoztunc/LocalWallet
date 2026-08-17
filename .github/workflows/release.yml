@@ -42,9 +42,26 @@ jobs:
       # `gh release upload` addresses a release by tag, not id, and the signing
       # steps below upload outside tauri-action.
       tag: ${{ steps.tag.outputs.name }}
+      # Whether each signing path is configured, computed here rather than
+      # branched on `secrets.*` directly: that context cannot be read from a
+      # job- or step-level `if:`. Routing the answer through a job output,
+      # instead of the earlier design's job-level `env:` in `build`, means the
+      # secrets themselves are never in scope for `npm ci` or `cargo test` —
+      # only the two steps that actually sign anything hold them.
+      gpg: ${{ steps.flags.outputs.gpg }}
+      signpath: ${{ steps.flags.outputs.signpath }}
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Which signing paths are configured
+        id: flags
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          [ -n "$GPG_PRIVATE_KEY" ] && echo "gpg=true" >> "$GITHUB_OUTPUT" || echo "gpg=false" >> "$GITHUB_OUTPUT"
+          [ -n "$SIGNPATH_API_TOKEN" ] && echo "signpath=true" >> "$GITHUB_OUTPUT" || echo "signpath=false" >> "$GITHUB_OUTPUT"
 
       # A tag that disagrees with the manifests would ship installers whose
       # filenames and in-app version do not match the release. Fail before
@@ -118,14 +135,12 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
-    # Secrets are mapped into `env` here because the `secrets` context cannot be
-    # read from an `if:` condition. Every signing step below branches on these
-    # being non-empty, which is what lets the whole pipeline run unchanged on a
-    # fork or before the signing accounts exist.
+    # Whether each signing path is on comes from `needs.prepare.outputs.*` (see
+    # the `flags` step there), not a job-level secret. Each signing step below
+    # holds only the secret it actually uses, in its own `env:`, so the signing
+    # keys are never in scope for `npm ci`, `cargo test`, or anything else that
+    # runs before them.
     env:
-      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       # Not a secret: it is published in the README so users can verify.
       GPG_KEY_ID: ${{ vars.GPG_KEY_ID }}
     strategy:
@@ -198,7 +213,9 @@ jobs:
       # Imported before the build so appimagetool can embed a signature while it
       # bundles. The detached signatures further down are made from the same key.
       - name: Import the GPG signing key
-        if: matrix.runner == 'ubuntu-22.04' && env.GPG_PRIVATE_KEY != ''
+        if: matrix.runner == 'ubuntu-22.04' && needs.prepare.outputs.gpg == 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
@@ -215,7 +232,9 @@ jobs:
       # APPIMAGETOOL_FORCE_SIGN is the load-bearing one: without it a broken key
       # yields a silently unsigned AppImage.
       - name: Enable the AppImage embedded signature
-        if: matrix.runner == 'ubuntu-22.04' && env.GPG_PRIVATE_KEY != ''
+        if: matrix.runner == 'ubuntu-22.04' && needs.prepare.outputs.gpg == 'true'
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           {
             echo "SIGN=1"
@@ -241,9 +260,10 @@ jobs:
       # ---------------------------------------------------------------- Linux
 
       - name: Sign the Linux bundles
-        if: matrix.runner == 'ubuntu-22.04' && env.GPG_PRIVATE_KEY != ''
+        if: matrix.runner == 'ubuntu-22.04' && needs.prepare.outputs.gpg == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           set -euo pipefail
           mkdir -p sigs && cd sigs
@@ -298,7 +318,7 @@ jobs:
 
       - name: Submit the signing request
         id: signpath
-        if: matrix.runner == 'windows-latest' && env.SIGNPATH_API_TOKEN != ''
+        if: matrix.runner == 'windows-latest' && needs.prepare.outputs.signpath == 'true'
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -315,7 +335,7 @@ jobs:
           wait-for-completion: false
 
       - name: Report the signing request
-        if: matrix.runner == 'windows-latest' && env.SIGNPATH_API_TOKEN != ''
+        if: matrix.runner == 'windows-latest' && needs.prepare.outputs.signpath == 'true'
         shell: bash
         run: |
           {
@@ -337,7 +357,7 @@ jobs:
       # An asset that is merely missing is safe; an asset that is missing and
       # unmentioned is not, hence the banner.
       - name: Flag the release as awaiting a signature
-        if: matrix.runner == 'windows-latest' && env.SIGNPATH_API_TOKEN != ''
+        if: matrix.runner == 'windows-latest' && needs.prepare.outputs.signpath == 'true'
         uses: actions/github-script@v7
         env:
           RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
@@ -359,7 +379,7 @@ jobs:
       # behaviour from before signing existed, so an unconfigured repo — or a
       # fork — still gets a complete release.
       - name: Publish the unsigned installer (SignPath not configured)
-        if: matrix.runner == 'windows-latest' && env.SIGNPATH_API_TOKEN == ''
+        if: matrix.runner == 'windows-latest' && needs.prepare.outputs.signpath == 'false'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

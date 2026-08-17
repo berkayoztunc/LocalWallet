@@ -24,6 +24,7 @@ import {
   cx,
 } from "../components/ui";
 import { Logo } from "../components/Logo";
+import { forgetAllPrivacyStorage } from "../lib/privacySessions";
 
 const SECTIONS = [
   { id: "network", label: "Network" },
@@ -58,6 +59,7 @@ export function SettingsScreen({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changing, setChanging] = useState(false);
+  const [clearedPrivacyCache, setClearedPrivacyCache] = useState(false);
   // Read from the bundle rather than a hardcoded string, so an installed build
   // can always identify itself.
   const [version, setVersion] = useState("");
@@ -356,6 +358,31 @@ export function SettingsScreen({
                         Prices come from CoinGecko.
                       </span>
                     </label>
+                  </CardBody>
+                </Card>
+
+                <Card className="mb-4">
+                  <CardHeader title="Privacy Cash cache" />
+                  <CardBody>
+                    <p className="mb-3 text-[11px] leading-relaxed text-mist-300">
+                      Private sends cache each wallet's pool notes locally so a balance check does
+                      not re-scan the whole pool every time. Part of that cache — the indices of your
+                      own commitments — is stored in plaintext, outside the encrypted vault: anyone
+                      who reads this app's data directory without your password could use it to link
+                      a wallet to its private sends. Clearing it here does not touch any funds; the
+                      next balance check for each wallet just scans from the start again.
+                    </p>
+                    <Button
+                      onClick={() => {
+                        forgetAllPrivacyStorage();
+                        setClearedPrivacyCache(true);
+                      }}
+                    >
+                      Forget Privacy Cash cache
+                    </Button>
+                    {clearedPrivacyCache && (
+                      <p className="mt-2 text-[11px] text-brand-500">Cleared.</p>
+                    )}
                   </CardBody>
                 </Card>
 
