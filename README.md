@@ -39,6 +39,8 @@ LocalWallet puts every wallet you own on one screen, does the tedious parts in b
 | **Fund → close → return** | Lend an empty wallet a fee, close its accounts, send the proceeds on. Releases rent that would otherwise be unreachable. |
 | **Collect all SOL** | Drain every wallet into one destination, with a per-wallet preview first. |
 | **Send SOL** | Single transfers from any wallet, with a quote before you sign. |
+| **Private send** | Shield SOL into the [Privacy Cash](https://privacycash.org) pool, pay any address out of it, and unshield the rest back to a wallet of your own. Opt-in, third-party, mainnet only — [read this first](#private-send-privacy-cash). |
+| **Hidden addresses** | The wallet list masks every address by default. One toggle reveals them; copying works either way. |
 | **Stake** | Every stake account your wallets control, with per-row unstake and withdraw, staking to any validator, plus a browsable list of all validators. |
 | **Tray total** | `163.40 SOL · $12,440` on the menu bar (macOS), the panel (Linux) or on hover (Windows), updated whenever balances refresh. Optional. |
 | **Configurable** | Your own RPC endpoint, commitment level, priority fee, concurrency, and a choice of Solana Explorer, Solscan or Orb. |
@@ -57,15 +59,33 @@ Read this part.
 
 ### Network access
 
-Two hosts, and you control both:
-
 | Request | Host | Sends | Optional |
 |---|---|---|---|
 | All chain data and transactions | **your configured RPC** | addresses, signed transactions | no — it is how the app works |
 | Validator names, icons, APY | **api.stakewiz.com** | nothing but the request itself and your IP | **yes** — Settings → Explorer → uncheck |
 | SOL price for the menu bar | **api.coingecko.com** | nothing but the request itself and your IP | **yes** — Settings → Security → uncheck |
+| Private sends | **api3.privacycash.org** | pool notes, proofs, recipient address | **yes** — only if you open the Privacy Cash dialog |
 
-Neither third-party call ever includes an address, a balance or a key. The directory is fetched only on the Stake screen's Validators tab and cached for six hours; the price is fetched at most once a minute. With both off, the app makes no request to any host other than your RPC.
+The directory and price calls never include an address, a balance or a key. The directory is fetched only on the Stake screen's Validators tab and cached for six hours; the price is fetched at most once a minute.
+
+Privacy Cash is the exception, and the only feature that sends anything meaningful to a third party — it cannot work otherwise, which is why it sits behind its own warning and does nothing until you open it. With all three off, the app makes no request to any host other than your RPC.
+
+### Private send (Privacy Cash)
+
+Every other feature in this app moves funds between addresses you control, in the open. This one does not, so it deserves its own paragraph.
+
+[Privacy Cash](https://privacycash.org) is a shielded pool: a deposit hands SOL to a contract and records an encrypted note only you can read, and a withdrawal proves in zero knowledge that *some* unspent note exists without revealing which. The address paid by a withdrawal therefore cannot be tied to the address that deposited. **Shield** puts SOL in, **Private send** pays anyone out of it, and **Unshield** aims the same withdrawal back at one of your own wallets.
+
+What you are agreeing to when you use it:
+
+- **It is someone else's contract.** LocalWallet has not audited it (the SDK reports an audit by Zigtur). If the pool fails, the funds in it are gone — no key in your vault recovers them.
+- **A relayer submits withdrawals** and charges a fee — currently 0.35% plus a flat ~0.006 SOL, quoted live before you confirm, minimum 0.01 SOL. It never holds your funds, but it does see the recipient.
+- **Mainnet only.** Privacy Cash has no devnet deployment, so there is nothing to rehearse on. Start with an amount you would not mind losing.
+- **Privacy is not automatic.** It comes from the size of the pool and from time. Depositing and immediately withdrawing the same unusual amount links both ends by itself.
+
+What has *not* changed: your keys still never leave the Rust backend. Proof generation is a JavaScript and WASM library, so it runs in the interface, but it is driven through the SDK's external-signer entry points — the webview sends bytes to sign and gets a signature back. The note encryption key is derived from a signature over a fixed message, cleared when the vault locks, and identical to the one Privacy Cash's own web app derives, so the same wallet shows the same private balance in either.
+
+`node scripts/simulate-privacy.mjs` exercises the whole path — key derivation, live relayer fees, pool scanning, and optionally building and *simulating* a real deposit — without ever submitting a transaction.
 
 Everything that describes your money — stake amounts, commissions, delinquency — comes from your own RPC either way. The directory supplies names only.
 
@@ -162,6 +182,25 @@ Deactivating and withdrawing use different authorities. If your vault holds one 
 </details>
 
 <details>
+<summary><b>How a private send keeps keys out of the interface</b></summary>
+
+Zero-knowledge proving for Privacy Cash exists only as JavaScript and WASM, so it has to run in the webview — the one place this app otherwise never puts anything sensitive. Its high-level client wants the raw secret key handed to it, which would end the guarantee the rest of the app is built on.
+
+It is not used. The integration drives the SDK's lower-level entry points instead, which take an external signer, so the split becomes:
+
+| Step | Where it runs | What crosses the bridge |
+|---|---|---|
+| Derive the note encryption key | webview, from a signature | the message out, 64 signature bytes back |
+| Build the deposit, prove, encrypt notes | webview | nothing |
+| Sign the deposit | **Rust** (`privacy.rs`) | an unsigned transaction out, a signed one back |
+| Submit the deposit | webview, via your RPC | — |
+| Withdraw | webview + relayer | no signature exists to give — the proof authorizes it |
+
+The backend signs exactly two things and refuses everything else: the one fixed sign-in message, checked byte for byte, and a transaction that already names the wallet as a required signer. Both are covered by tests in `src-tauri/src/privacy.rs`. A general "sign these bytes" command would be a signing oracle reachable from the interface, which is the thing worth not building.
+
+</details>
+
+<details>
 <summary><b>Where your data lives</b></summary>
 
 | Platform | Directory |
@@ -196,7 +235,11 @@ npm install
 npm run tauri dev      # hot-reloading dev build
 npm run tauri build    # installers in src-tauri/target/release/bundle/
 cargo test --manifest-path src-tauri/Cargo.toml
+
+node scripts/simulate-privacy.mjs   # private-send checks, submits nothing
 ```
+
+Node 24 or newer is required: Privacy Cash's SDK will not install or run below it.
 
 Release builds for all three platforms are produced by GitHub Actions — see `.github/workflows/release.yml`. Nothing has to be built locally to cut a release.
 
@@ -208,6 +251,7 @@ Release builds for all three platforms are produced by GitHub Actions — see `.
 - [ ] Auto-update
 - [ ] Delegating new stake from the app (currently view and unwind only)
 - [ ] SPL token sweeping (currently SOL only)
+- [ ] Private sends for SPL tokens (Privacy Cash supports USDC and USDT; only SOL is wired up)
 - [ ] Seed-phrase import and hardware wallet support
 
 ## Contributing

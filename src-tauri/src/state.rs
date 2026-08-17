@@ -46,6 +46,17 @@ impl SigningKey {
         Keypair::try_from(&self.secret[..])
             .map_err(|_| AppError::invalid("stored key is not a valid keypair"))
     }
+
+    /// Build one directly from key bytes, so signing can be tested without a
+    /// vault. The real constructor is `AppState::signing_keys`.
+    #[cfg(test)]
+    pub fn for_test(label: String, pubkey: String, secret: [u8; 64]) -> Self {
+        Self {
+            label,
+            pubkey,
+            secret: Zeroizing::new(secret),
+        }
+    }
 }
 
 impl AppState {

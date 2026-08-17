@@ -707,6 +707,29 @@ pub async fn send_sol(
     .await
 }
 
+/// Sign the Privacy Cash sign-in message. See [`crate::privacy`] for why the
+/// webview is allowed to ask for this at all.
+#[tauri::command]
+pub async fn privacy_sign_in(
+    state: State<'_, AppState>,
+    pubkey: String,
+    message: Vec<u8>,
+) -> Result<Vec<u8>> {
+    let key = signing_key(&state, &pubkey)?;
+    crate::privacy::sign_in(&key, &message)
+}
+
+/// Sign a Privacy Cash deposit transaction built in the webview.
+#[tauri::command]
+pub async fn privacy_sign_transaction(
+    state: State<'_, AppState>,
+    pubkey: String,
+    transaction: Vec<u8>,
+) -> Result<Vec<u8>> {
+    let key = signing_key(&state, &pubkey)?;
+    crate::privacy::sign_transaction(&key, &transaction)
+}
+
 #[tauri::command]
 pub async fn sweep_preview(
     app: AppHandle,

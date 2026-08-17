@@ -19,13 +19,25 @@ I'll acknowledge within a few days. Since this is a small project, fixes ship as
 
 ## Network access
 
-The app makes requests to two hosts:
+The app makes requests to these hosts:
 
 1. **The RPC endpoint you configure** — all chain reads and every transaction.
 2. **`api.stakewiz.com`** — validator names, icons and APY estimates for the Stake screen, when the "Look up validator names" setting is on (it is on by default). Cached for six hours.
 3. **`api.coingecko.com`** — the SOL price for the menu bar total, when the menu bar is on (it is on by default). Cached for one minute.
+4. **`api3.privacycash.org`** — Privacy Cash's relayer, contacted only once you open the private-send dialog. Unlike the others, this one necessarily carries meaningful data: encrypted pool notes, zero-knowledge proofs, and the recipient address of a withdrawal. It is off until you use the feature, which is gated behind a one-time warning.
 
-Neither third-party request carries an address, a balance or a key. Each discloses your IP and that someone running LocalWallet asked for public market or validator data. Both can be turned off in Settings, after which the app contacts nothing but your RPC.
+The directory and price requests carry no address, balance or key. Each discloses your IP and that someone running LocalWallet asked for public market or validator data. All three can be avoided in Settings or by not using the feature, after which the app contacts nothing but your RPC.
+
+## Private sends
+
+Privacy Cash's proving code is JavaScript and WASM, so it runs in the webview. Its own high-level client takes the raw secret key; that path is deliberately unused. The integration drives the SDK's external-signer entry points, and the backend exposes exactly two signing commands to the interface:
+
+- `privacy_sign_in` signs one fixed message and compares the requested bytes against it before signing. Anything else is refused.
+- `privacy_sign_transaction` signs a transaction only if it already names the wallet among its required signers, and signs in place without rewriting the message.
+
+Neither returns key material. The narrowness is the point: an unrestricted "sign these bytes" command reachable from the webview would be a signing oracle, and a Solana transaction is also just bytes. Both commands are covered by tests in `src-tauri/src/privacy.rs`.
+
+The pool contract and the relayer are third-party code that LocalWallet has not audited. Bugs in them are out of scope here — report those to Privacy Cash — but anything in *this* app that mishandles keys, signs more than it should, or sends a transaction the UI did not describe is very much in scope.
 
 ## What the menu bar writes to disk
 
@@ -43,6 +55,7 @@ Data from the directory is treated as untrusted decoration. Every figure the app
 - **Confirmation bypass** — anything that lets a destructive action run without the preview and explicit confirmation it is supposed to require
 - **Supply chain** — a dependency shipping something it shouldn't
 - **The validator directory** — anything that lets its response influence a transaction, an amount, or an address the app acts on
+- **The private-send signing proxy** — anything that widens what `privacy_sign_in` or `privacy_sign_transaction` will put a signature on
 
 ## Out of scope
 

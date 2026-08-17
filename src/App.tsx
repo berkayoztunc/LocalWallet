@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import { api, asAppError, type Settings } from "./lib/api";
+import { forgetPrivacySessions } from "./lib/privacySessions";
 import { Setup } from "./screens/Setup";
 import { Unlock } from "./screens/Unlock";
 import { Dashboard } from "./screens/Dashboard";
@@ -36,6 +37,10 @@ export default function App() {
 
   const lock = useCallback(async () => {
     await api.vaultLock();
+    // An open Privacy Cash session holds a key derived from a signature, which
+    // would otherwise outlive the vault it came from. Auto-lock runs through
+    // here too, which is why it is not left to the Lock button.
+    forgetPrivacySessions();
     setScreen("unlock");
   }, []);
 

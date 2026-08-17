@@ -145,9 +145,11 @@ jobs:
             pkg-config \
             file
 
+      # Pinned to match CI: Privacy Cash's SDK requires Node 24, and a floating
+      # version also floats npm's lock-file resolution.
       - uses: actions/setup-node@v6
         with:
-          node-version: lts/*
+          node-version: "24"
           cache: npm
 
       - name: Install Rust
