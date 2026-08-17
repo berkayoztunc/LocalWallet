@@ -34,6 +34,7 @@ import {
   getBalanceFromUtxos,
   getConfig,
   getUtxos,
+  setLogger,
   withdraw,
 } from "privacycash/utils";
 
@@ -130,19 +131,67 @@ export function openPrivacySession(pubkey: string, rpcUrl: string): Promise<Priv
   return opening;
 }
 
-/** Sum the wallet's unspent notes. Slow the first time; cached after that. */
+/**
+ * Read a wallet's shielded balance.
+ *
+ * This is expensive, and worth understanding before calling it anywhere it
+ * could surprise someone. Which notes are yours is not something the pool
+ * records — the only way to find out is to fetch every note in it and try to
+ * decrypt each one with your key. That is currently about 750,000 notes and
+ * 130 MB, and it has to happen once per wallet, because each wallet has a
+ * different key. Measured at roughly 25 seconds over a fast connection outside
+ * the app; slower in a webview, and it grows with the pool.
+ *
+ * That cost is why there is no bulk version: scanning N wallets means N passes
+ * over the whole pool. Afterwards the SDK caches a resume offset per wallet, so
+ * later reads only cover notes added since. `onStatus` exists because even one
+ * pass runs long enough that a silent spinner reads as a hang.
+ */
 export async function privateBalance(
   session: PrivacySession,
-  abortSignal?: AbortSignal,
+  options: { abortSignal?: AbortSignal; onStatus?: (message: string) => void } = {},
 ): Promise<PrivateBalance> {
-  const utxos = await getUtxos({
-    publicKey: session.publicKey,
-    connection: session.connection,
-    encryptionService: session.encryptionService,
-    storage: session.storage,
-    abortSignal,
+  return withScanLock(async () => {
+    // The SDK's logger is module-global, so it is set per call and cleared
+    // after — the same reason scans are serialized in the first place.
+    if (options.onStatus) {
+      setLogger((level, message) => {
+        if (level === "info") options.onStatus?.(message);
+      });
+    }
+    try {
+      const utxos = await getUtxos({
+        publicKey: session.publicKey,
+        connection: session.connection,
+        encryptionService: session.encryptionService,
+        storage: session.storage,
+        abortSignal: options.abortSignal,
+      });
+      return getBalanceFromUtxos(utxos);
+    } finally {
+      setLogger(() => {});
+    }
   });
-  return getBalanceFromUtxos(utxos);
+}
+
+/**
+ * Serialize everything that walks the note set.
+ *
+ * `getUtxos` tracks its paging position in module-level variables, so two
+ * concurrent calls interleave and corrupt each other's results — a wallet
+ * would report someone else's balance, or none. Queueing is not a performance
+ * choice here; overlapping scans are simply wrong.
+ */
+let scanQueue: Promise<unknown> = Promise.resolve();
+
+function withScanLock<T>(work: () => Promise<T>): Promise<T> {
+  const next = scanQueue.then(work, work);
+  // Keep the chain alive regardless of how this link settles.
+  scanQueue = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
 }
 
 /**
@@ -179,22 +228,26 @@ export async function quotePrivateSend(lamports: number): Promise<PrivacyQuote> 
 export async function shield(session: PrivacySession, lamports: number): Promise<string> {
   const lightWasm = await WasmFactory.getInstance();
 
-  const result = await deposit({
-    lightWasm,
-    amount_in_lamports: lamports,
-    connection: session.connection,
-    encryptionService: session.encryptionService,
-    publicKey: session.publicKey,
-    keyBasePath: CIRCUIT_BASE_PATH,
-    storage: session.storage,
-    transactionSigner: async (tx: VersionedTransaction) => {
-      const signed = await invoke<number[]>("privacy_sign_transaction", {
-        pubkey: session.pubkey,
-        transaction: Array.from(tx.serialize()),
-      });
-      return VersionedTransaction.deserialize(new Uint8Array(signed));
-    },
-  });
+  // Deposits read the note set to find inputs, so they contend with balance
+  // scans over the same module-level paging state.
+  const result = await withScanLock(() =>
+    deposit({
+      lightWasm,
+      amount_in_lamports: lamports,
+      connection: session.connection,
+      encryptionService: session.encryptionService,
+      publicKey: session.publicKey,
+      keyBasePath: CIRCUIT_BASE_PATH,
+      storage: session.storage,
+      transactionSigner: async (tx: VersionedTransaction) => {
+        const signed = await invoke<number[]>("privacy_sign_transaction", {
+          pubkey: session.pubkey,
+          transaction: Array.from(tx.serialize()),
+        });
+        return VersionedTransaction.deserialize(new Uint8Array(signed));
+      },
+    }),
+  );
 
   return result.tx;
 }
@@ -214,16 +267,19 @@ export async function privateSend(
 ): Promise<PrivateSendResult> {
   const lightWasm = await WasmFactory.getInstance();
 
-  const result = await withdraw({
-    lightWasm,
-    amount_in_lamports: lamports,
-    connection: session.connection,
-    encryptionService: session.encryptionService,
-    publicKey: session.publicKey,
-    recipient: new PublicKey(recipient),
-    keyBasePath: CIRCUIT_BASE_PATH,
-    storage: session.storage,
-  });
+  // Withdrawals pick their inputs from the note set too.
+  const result = await withScanLock(() =>
+    withdraw({
+      lightWasm,
+      amount_in_lamports: lamports,
+      connection: session.connection,
+      encryptionService: session.encryptionService,
+      publicKey: session.publicKey,
+      recipient: new PublicKey(recipient),
+      keyBasePath: CIRCUIT_BASE_PATH,
+      storage: session.storage,
+    }),
+  );
 
   return {
     signature: result.tx,

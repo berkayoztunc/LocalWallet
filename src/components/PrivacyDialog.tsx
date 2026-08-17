@@ -48,6 +48,7 @@ export function PrivacyDialog({
   wallet,
   wallets,
   balance,
+  pooled: knownPooled,
   onSettingsChanged,
   onClose,
   onFinished,
@@ -56,14 +57,18 @@ export function PrivacyDialog({
   wallet: Wallet;
   wallets: Wallet[];
   balance: number | null;
+  /** Already-scanned shielded balance, if the wallet list has one. */
+  pooled: number | null;
   onSettingsChanged: (s: Settings) => void;
   onClose: () => void;
-  onFinished: () => void;
+  /** Reports the wallet's shielded balance back, so the row need not re-scan. */
+  onFinished: (pooled: number | null) => void;
 }) {
   const [mode, setMode] = useState<Mode>("shield");
   const [phase, setPhase] = useState<Phase>(settings.privacy_cash_ack ? "opening" : "disclosure");
   const [session, setSession] = useState<PrivacySession | null>(null);
-  const [pooled, setPooled] = useState<number | null>(null);
+  const [pooled, setPooled] = useState<number | null>(knownPooled);
+  const [status, setStatus] = useState("");
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
   const [ownDestination, setOwnDestination] = useState(wallet.pubkey);
@@ -74,10 +79,20 @@ export function PrivacyDialog({
 
   const busy = phase === "working" || phase === "opening";
 
-  /** Read the pool balance. Slow the first time — it decrypts every note. */
+  /**
+   * Read the pool balance. Minutes the first time a wallet is read — it tries
+   * every note in the pool against this wallet's key — so the status line from
+   * the SDK is surfaced rather than left as a bare spinner.
+   */
   const refreshPooled = useCallback(async (open: PrivacySession) => {
-    const { lamports } = await privateBalance(open);
-    setPooled(lamports);
+    setStatus("");
+    try {
+      const { lamports } = await privateBalance(open, { onStatus: setStatus });
+      setPooled(lamports);
+      return lamports;
+    } finally {
+      setStatus("");
+    }
   }, []);
 
   // Opening asks the backend for one signature, which is what derives the key
@@ -91,7 +106,9 @@ export function PrivacyDialog({
         if (cancelled) return;
         setSession(open);
         setPhase("form");
-        await refreshPooled(open);
+        // A figure handed over from the wallet list is good enough to open with;
+        // re-reading it here would rescan the pool to print the same number.
+        if (knownPooled === null) await refreshPooled(open);
       } catch (e) {
         if (!cancelled) {
           setError(asAppError(e).message);
@@ -102,7 +119,7 @@ export function PrivacyDialog({
     return () => {
       cancelled = true;
     };
-  }, [phase, wallet.pubkey, settings.rpc_url, refreshPooled]);
+  }, [phase, wallet.pubkey, settings.rpc_url, refreshPooled, knownPooled]);
 
   async function acknowledge() {
     try {
@@ -151,10 +168,14 @@ export function PrivacyDialog({
         );
       }
       setPhase("done");
-      onFinished();
-      // The pool balance moved either way, and the figure in the header is
-      // the only thing telling the user what is left to spend.
-      refreshPooled(session).catch(() => {});
+      // The pool balance moved either way, and the figure in the footer is the
+      // only thing telling the user what is left to spend. Re-reading resumes
+      // from the cached offset, so it is cheap now the wallet has been scanned
+      // once. The result is passed up so the wallet list stays in step.
+      refreshPooled(session).then(
+        (lamports) => onFinished(lamports),
+        () => onFinished(null),
+      );
     } catch (e) {
       setError(asAppError(e).message);
       setPhase("confirm");
@@ -230,7 +251,19 @@ export function PrivacyDialog({
 
           {phase === "opening" && (
             <p className="mb-3 flex items-center gap-2 text-[11px] text-mist-500">
-              <Spinner /> Deriving this wallet's pool key and reading its notes…
+              <Spinner />
+              <span className="truncate">
+                {status || "Deriving this wallet's pool key and reading its notes…"}
+              </span>
+            </p>
+          )}
+
+          {/* Reading a shielded balance is a whole-pool scan. Saying so beats
+              a spinner that looks stuck. */}
+          {phase === "opening" && (
+            <p className="mb-3 text-[11px] leading-snug text-mist-500">
+              The first read of a wallet tries all ~750,000 notes in the pool against its key, so it
+              takes a while. Later reads only cover what has been added since.
             </p>
           )}
 

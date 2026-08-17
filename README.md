@@ -40,6 +40,7 @@ LocalWallet puts every wallet you own on one screen, does the tedious parts in b
 | **Collect all SOL** | Drain every wallet into one destination, with a per-wallet preview first. |
 | **Send SOL** | Single transfers from any wallet, with a quote before you sign. |
 | **Private send** | Shield SOL into the [Privacy Cash](https://privacycash.org) pool, pay any address out of it, and unshield the rest back to a wallet of your own. Opt-in, third-party, mainnet only — [read this first](#private-send-privacy-cash). |
+| **Shielded balances** | A **Pool** column showing what each wallet holds in Privacy Cash, scanned per row on request. |
 | **Hidden addresses** | The wallet list masks every address by default. One toggle reveals them; copying works either way. |
 | **Stake** | Every stake account your wallets control, with per-row unstake and withdraw, staking to any validator, plus a browsable list of all validators. |
 | **Tray total** | `163.40 SOL · $12,440` on the menu bar (macOS), the panel (Linux) or on hover (Windows), updated whenever balances refresh. Optional. |
@@ -82,6 +83,7 @@ What you are agreeing to when you use it:
 - **A relayer submits withdrawals** and charges a fee — currently 0.35% plus a flat ~0.006 SOL, quoted live before you confirm, minimum 0.01 SOL. It never holds your funds, but it does see the recipient.
 - **Mainnet only.** Privacy Cash has no devnet deployment, so there is nothing to rehearse on. Start with an amount you would not mind losing.
 - **Privacy is not automatic.** It comes from the size of the pool and from time. Depositing and immediately withdrawing the same unusual amount links both ends by itself.
+- **Balances are read one wallet at a time.** The pool does not record whose notes are whose, so finding a wallet's balance means trying every note in it — currently ~750,000, about 130 MB — against that wallet's key. That is why the **Pool** column scans on request per row rather than filling in with the others, and why there is no bulk version: N wallets would mean N passes over the whole pool. Repeat scans of the same wallet resume from where the last one stopped.
 
 What has *not* changed: your keys still never leave the Rust backend. Proof generation is a JavaScript and WASM library, so it runs in the interface, but it is driven through the SDK's external-signer entry points — the webview sends bytes to sign and gets a signature back. The note encryption key is derived from a signature over a fixed message, cleared when the vault locks, and identical to the one Privacy Cash's own web app derives, so the same wallet shows the same private balance in either.
 
