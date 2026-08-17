@@ -35,26 +35,46 @@ jobs:
       contents: write
       # Needed to download the workflow artifact release.yml staged.
       actions: read
+    # Workflow inputs are attacker-supplied to anyone who can dispatch this, and
+    # `${{ }}` is substituted before the shell parses the script — so a `$(...)`
+    # in an input would execute in a job holding the signing token. They are
+    # mapped to environment variables here and referenced as shell variables
+    # below; no `${{ inputs.* }}` may appear inside a `run:` block.
     env:
       SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG_IN: ${{ inputs.tag }}
+      SIGNED_URL_IN: ${{ inputs.signed_artifact_url }}
+      FALLBACK: ${{ inputs.fallback_unsigned }}
+      # Set this once SignPath has issued the certificate. Until then the
+      # signature is checked for validity but not for who made it.
+      LEAF_HASH: ${{ vars.SIGNPATH_LEAF_SHA256 }}
 
     steps:
+      # Validates, then re-exports under different names, so every later step
+      # consumes only values that have been through this gate.
       - name: Check the inputs make sense
         run: |
           set -euo pipefail
-          if [ "${{ inputs.fallback_unsigned }}" = "true" ]; then
-            echo "::warning::Attaching the UNSIGNED installer for ${{ inputs.tag }}."
+          printf '%s' "$TAG_IN" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::tag must look like v1.2.3"; exit 1; }
+          echo "TAG=$TAG_IN" >> "$GITHUB_ENV"
+
+          if [ "$FALLBACK" = "true" ]; then
+            echo "::warning::Attaching the UNSIGNED installer for $TAG_IN."
             exit 0
           fi
           if [ -z "$SIGNPATH_API_TOKEN" ]; then
             echo "::error::SIGNPATH_API_TOKEN is not set, so there is no signed artifact to fetch."
             exit 1
           fi
-          if [ -z "${{ inputs.signed_artifact_url }}" ]; then
-            echo "::error::signed_artifact_url is required. Copy it from the release run's summary."
-            exit 1
-          fi
+          # The host allowlist, not the quoting, is what stops the bearer token
+          # below being sent to somewhere it should not go.
+          case "$SIGNED_URL_IN" in
+            https://app.signpath.io/*) ;;
+            *) echo "::error::signed_artifact_url must start with https://app.signpath.io/"; exit 1 ;;
+          esac
+          echo "SIGNED_URL=$SIGNED_URL_IN" >> "$GITHUB_ENV"
 
       # SignPath publishes no download-only action, so this is a plain API call
       # against the URL the submit step already reported. Taking the URL as an
@@ -65,15 +85,27 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p installer
-          curl -fSL --retry 3 \
-            -H "Authorization: Bearer $SIGNPATH_API_TOKEN" \
-            -o signed.zip "${{ inputs.signed_artifact_url }}"
+          # Redirects are followed by hand rather than with -L, because curl
+          # re-sends an explicitly-set Authorization header across hosts. The
+          # storage URL SignPath redirects to carries its own credentials.
+          redirect=$(curl -sS --proto '=https' -o /dev/null -w '%{redirect_url}' \
+            -H "Authorization: Bearer $SIGNPATH_API_TOKEN" "$SIGNED_URL")
+          if [ -n "$redirect" ]; then
+            case "$redirect" in
+              https://*) ;;
+              *) echo "::error::refusing a non-https redirect"; exit 1 ;;
+            esac
+            curl -fsS --proto '=https' --retry 3 -o signed.zip "$redirect"
+          else
+            curl -fsS --proto '=https' --retry 3 \
+              -H "Authorization: Bearer $SIGNPATH_API_TOKEN" -o signed.zip "$SIGNED_URL"
+          fi
           # SignPath returns the artifact in the same shape it was submitted,
           # which upload-artifact made a zip.
           if unzip -tq signed.zip 2>/dev/null; then
             unzip -o -j signed.zip -d installer
           else
-            mv signed.zip "installer/$(basename '${{ inputs.tag }}')-setup.exe"
+            mv signed.zip "installer/${TAG}-setup.exe"
           fi
           rm -f signed.zip
           ls -l installer
@@ -82,11 +114,13 @@ jobs:
         if: ${{ inputs.fallback_unsigned }}
         run: |
           set -euo pipefail
+          # `env.TAG` inside the jq program avoids interpolating the tag into a
+          # quoted shell string a second time.
           run_id=$(gh run list --workflow release.yml --json databaseId,headBranch \
-            --jq "[.[] | select(.headBranch == \"${{ inputs.tag }}\")][0].databaseId" \
+            --jq '[.[] | select(.headBranch == env.TAG)][0].databaseId' \
             --repo "$GITHUB_REPOSITORY")
           if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
-            echo "::error::Found no release.yml run for ${{ inputs.tag }}. The artifact may have expired."
+            echo "::error::Found no release.yml run for $TAG. The artifact may have expired."
             exit 1
           fi
           gh run download "$run_id" -n windows-installer-unsigned -D installer \
@@ -95,20 +129,56 @@ jobs:
       # Checked before it is attached, so a signature that does not verify never
       # reaches a release. osslsigncode reads Authenticode on Linux, which is why
       # this job does not need a Windows runner.
-      - name: Verify the Authenticode signature
+      #
+      # Two separate questions are asked here, and the second is the one that
+      # actually matters: "is this signed by SignPath" and "is this the binary
+      # CI built". A bare `verify` answers neither — it only says some
+      # certificate chaining to a public root signed *something*.
+      - name: Verify the signature and the provenance
         if: ${{ !inputs.fallback_unsigned }}
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y osslsigncode
-          exe=$(ls installer/*-setup.exe)
-          osslsigncode verify -in "$exe"
+          exe=$(find installer -name '*-setup.exe' | head -1)
+          test -f "$exe"
+
+          if [ -n "${LEAF_HASH:-}" ]; then
+            osslsigncode verify -require-leaf-hash "sha256:$LEAF_HASH" -in "$exe"
+          else
+            echo "::warning title=Signer not pinned::SIGNPATH_LEAF_SHA256 is unset, so the chain is validated but ANY publicly-chaining certificate would pass. Set the repo variable after the first signing request is approved."
+            osslsigncode verify -in "$exe"
+          fi
+
+          # Provenance: stripping the signature must reproduce, byte for byte,
+          # the installer release.yml staged. Without this, a signature check
+          # says nothing about *which* binary was signed.
+          run_id=$(gh run list --workflow release.yml --json databaseId,headBranch \
+            --jq '[.[] | select(.headBranch == env.TAG)][0].databaseId' \
+            --repo "$GITHUB_REPOSITORY")
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "::error::Found no release.yml run for $TAG to check provenance against."
+            exit 1
+          fi
+          gh run download "$run_id" -n windows-installer-unsigned -D staged \
+            --repo "$GITHUB_REPOSITORY"
+          osslsigncode remove-signature -in "$exe" -out stripped.exe
+          signed_hash=$(sha256sum stripped.exe | cut -d' ' -f1)
+          staged_hash=$(sha256sum staged/*-setup.exe | cut -d' ' -f1)
+          if [ "$signed_hash" != "$staged_hash" ]; then
+            echo "::error::The signed installer is not the one this release built."
+            exit 1
+          fi
+          echo "EXE=$exe" >> "$GITHUB_ENV"
 
       - name: Attach it to the release
         run: |
           set -euo pipefail
-          gh release upload "${{ inputs.tag }}" installer/*-setup.exe \
-            --clobber --repo "$GITHUB_REPOSITORY"
+          # A single resolved path, not a glob: an attacker-supplied archive
+          # must not be able to contribute extra release assets.
+          exe="${EXE:-$(find installer -name '*-setup.exe' | head -1)}"
+          test -f "$exe"
+          gh release upload "$TAG" "$exe" --clobber --repo "$GITHUB_REPOSITORY"
 
       # Only once a signed installer is actually on the release. The fallback
       # leaves the banner in place on purpose: the release really does carry an
@@ -116,8 +186,6 @@ jobs:
       - name: Clear the pending-signature banner
         if: ${{ !inputs.fallback_unsigned }}
         uses: actions/github-script@v7
-        env:
-          TAG: ${{ inputs.tag }}
         with:
           script: |
             const tag = process.env.TAG;

@@ -9,10 +9,19 @@
  * and "unshielding" is the same withdrawal aimed back at your own wallet.
  *
  * The proving work only exists as JavaScript and WASM, so it runs here rather
- * than in the Rust backend. That does not mean keys come with it: this module
- * drives the SDK's lower-level entry points, which accept an external signer,
- * and every signature is fetched from the backend over the `privacy_sign_*`
- * commands. No secret key is ever read into the webview.
+ * than in the Rust backend. This module drives the SDK's lower-level entry
+ * points, which accept an external signer, so the wallet's secret key itself is
+ * never read into the webview.
+ *
+ * That is a narrower guarantee than it sounds, and the difference matters:
+ * **spend authority over the shielded balance does reach this file.** The
+ * sign-in signature below is stretched by the SDK into the pool's spending key
+ * (`keccak256(keccak256(sig))`), which is the private witness of the withdrawal
+ * proof, and withdrawals need no Solana signature — the relayer submits them.
+ * Anyone who obtains that signature can drain the shielded balance to any
+ * address, later, offline, without the vault password. Locking the vault does
+ * not revoke it. This is unavoidable while the prover runs here: it needs the
+ * key. Treat everything in this module as running with that authority.
  *
  * Two consequences worth knowing:
  *

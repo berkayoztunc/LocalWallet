@@ -10,6 +10,17 @@ import { StakeScreen } from "./screens/StakeScreen";
 
 type Screen = "loading" | "setup" | "unlock" | "dashboard" | "settings" | "stake";
 
+/**
+ * The screens shown before the vault is open, and so the only ones auto-lock
+ * has nothing to do on.
+ *
+ * Listed as what to skip rather than what to cover: the previous version named
+ * the two screens that *did* arm the timer, which silently left the stake
+ * screen — added later — holding a vault open indefinitely. Any screen added
+ * from here is protected unless someone deliberately adds it to this list.
+ */
+const PRE_UNLOCK: readonly Screen[] = ["loading", "setup", "unlock"];
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -48,7 +59,7 @@ export default function App() {
   // genuine stretch of inactivity.
   useEffect(() => {
     const minutes = settings?.auto_lock_minutes ?? 0;
-    if (minutes <= 0 || (screen !== "dashboard" && screen !== "settings")) return;
+    if (minutes <= 0 || PRE_UNLOCK.includes(screen)) return;
 
     const reset = () => {
       if (idleTimer.current) window.clearTimeout(idleTimer.current);
