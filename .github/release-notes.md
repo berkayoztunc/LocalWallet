@@ -4,8 +4,9 @@
 
 Download the `.dmg`, open it, and drag **LocalWallet** to Applications.
 
-This build is **not signed with an Apple Developer ID**, so macOS will refuse to
-open it the first time. Either:
+The app is ad-hoc signed but **not signed with an Apple Developer ID**, so macOS
+will refuse to open it the first time, saying it cannot check it for malicious
+software. Either:
 
 - double-click it, dismiss the warning, then go to **System Settings → Privacy &
   Security** and click **Open Anyway**; or
