@@ -30,21 +30,21 @@ The directory and price requests carry no address, balance or key. Each disclose
 
 ## Private sends
 
-Privacy Cash's proving code is JavaScript and WASM, so it runs in the webview. Its own high-level client takes the raw secret key; that path is deliberately unused. The integration drives the SDK's external-signer entry points, and the backend exposes exactly two signing commands to the interface:
+Privacy Cash's proving code is JavaScript and WASM, so it runs in the webview. Its own high-level client takes the raw secret key; that path is deliberately unused. The integration drives the SDK's external-signer entry points instead, and the backend exposes three commands to the interface:
 
-- `privacy_sign_in` signs one fixed message and compares the requested bytes against it before signing. Anything else is refused.
-- `privacy_sign_transaction` signs a transaction only if it already names the wallet among its required signers, and signs in place without rewriting the message.
+- `privacy_authorize` shows a native, OS-drawn confirmation naming the wallet, and only if you approve it does it grant that one wallet 15 minutes of Privacy Cash access — tracked in the Rust process, not something the interface can set for itself.
+- `privacy_sign_in` signs one fixed message, and only once per grant. Anything else, or a second attempt, is refused.
+- `privacy_sign_transaction` decodes the transaction and signs it only if it is shaped exactly like a Privacy Cash deposit — the right program, the right instruction, no extras — and only for the lamport amount you confirmed on the review screen before it was sent for signing.
 
-Neither returns the raw secret key. But an earlier version of this section implied that settled the matter, and it does not — the correction matters more than the original claim:
+None of that changes what the signature `privacy_sign_in` returns actually is, and it is worth being precise rather than reassuring: **it is spend authority over that wallet's shielded balance.** Privacy Cash derives its pool spending key from it, and a withdrawal is authorised by that key with no Solana signature at all — the relayer submits it. Keeping that out of the webview entirely is not possible while the prover runs there; it needs the key to produce a proof. What the commands above narrow is *who* can obtain it and for *how long*, not what it is once obtained:
 
-**The shielded balance is not protected to the same standard as the rest of the wallet.** The signature `privacy_sign_in` returns is what Privacy Cash derives its pool spending key from, and a withdrawal is authorised by that key with no Solana signature at all — the relayer submits it. So the code running in the webview holds enough to move your shielded funds to any address. That is inherent to running the prover there; it needs the key. Locking the vault or changing your password does not revoke a copy that has already leaked.
+- Only one wallet at a time, and only the one a native dialog named — the interface cannot silently request it for every wallet in the vault.
+- Only for 15 minutes, and never past a lock — `privacy_authorize` must be answered again for the next operation, and locking the vault revokes any outstanding grant immediately.
+- A copy that already left the process before the grant expired is still valid until then, and — because the pool authorises spends with a key rather than a fresh Solana signature — a copy that leaked during that window has no expiry the app can enforce afterwards.
 
-Concretely: your ordinary SOL survives a malicious npm dependency, and funds in the pool do not. Two consequences we would rather state than have a user discover:
+Concretely: your ordinary SOL survives a malicious npm dependency running for a few minutes; funds you have shielded, held during that same window, may not. Keep what you shield to an amount you would accept losing to a bad release of a third-party package.
 
-- Keep the shielded balance to an amount you would accept losing to a bad release of a third-party package.
-- `privacy_sign_transaction` currently signs any transaction naming the wallet as a required signer, checking only the signer position — not the programs invoked, nor the amount. Constraining it to genuine deposits, and requiring explicit per-wallet authorisation before a sign-in signature is issued, are the next changes to this area.
-
-The pool contract and the relayer are third-party code that LocalWallet has not audited. Bugs in them are out of scope here — report those to Privacy Cash — but anything in *this* app that mishandles keys, signs more than it should, or sends a transaction the UI did not describe is very much in scope.
+The pool contract and the relayer are third-party code that LocalWallet has not audited. Bugs in them are out of scope here — report those to Privacy Cash — but anything in *this* app that mishandles keys, signs more than it should, grants Privacy Cash access without the native confirmation, or sends a transaction the UI did not describe is very much in scope.
 
 ## What the menu bar writes to disk
 

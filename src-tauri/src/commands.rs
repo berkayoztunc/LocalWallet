@@ -255,7 +255,11 @@ pub async fn wallets_remove(
             return Err(AppError::UnknownWallet(pubkey.clone()));
         }
         Ok(())
-    })
+    })?;
+    // A wallet on its way out must not leave its Privacy Cash approval behind
+    // for whatever is imported next.
+    state.revoke_privacy_grant_for(&pubkey);
+    Ok(())
 }
 
 #[tauri::command]
@@ -707,27 +711,85 @@ pub async fn send_sol(
     .await
 }
 
-/// Sign the Privacy Cash sign-in message. See [`crate::privacy`] for why the
-/// webview is allowed to ask for this at all.
+/// Ask the user, natively, to clear one wallet for Privacy Cash.
+///
+/// The dialog is the only part of this the webview cannot draw, which is the
+/// point: what is being approved is a credential that can move the wallet's
+/// shielded balance later and elsewhere, so the request has to be legible
+/// outside the code that might be compromised. The wallet's label is read from
+/// the vault rather than taken as an argument for the same reason.
+#[tauri::command]
+pub async fn privacy_authorize(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pubkey: String,
+) -> Result<()> {
+    // Also proves the wallet is really in the vault before anything is shown.
+    let key = signing_key(&state, &pubkey)?;
+    let label = key.label.clone();
+    let short = format!(
+        "{}…{}",
+        &pubkey[..4.min(pubkey.len())],
+        &pubkey[pubkey.len().saturating_sub(4)..]
+    );
+    drop(key);
+
+    // `blocking_show` parks the thread until the user answers, so it must not
+    // run on the one driving the UI.
+    let approved = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        app.dialog()
+            .message(format!(
+                "Allow Privacy Cash to use {label} ({short})?\n\n\
+                 This gives the Privacy Cash code running in the app window what \
+                 it needs to move this wallet's shielded balance — now or later, \
+                 to any address, without your password. Locking the vault or \
+                 changing your password does not take it back.\n\n\
+                 Only this wallet is affected, and only for the next 15 minutes."
+            ))
+            .title("Privacy Cash access")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Allow".to_string(),
+                "Cancel".to_string(),
+            ))
+            .blocking_show()
+    })
+    .await
+    .map_err(|e| AppError::invalid(format!("could not ask for confirmation: {e}")))?;
+
+    if !approved {
+        return Err(AppError::invalid("Privacy Cash access was declined"));
+    }
+    state.grant_privacy(pubkey);
+    Ok(())
+}
+
+/// Sign the Privacy Cash sign-in message. See [`crate::privacy`] for what the
+/// returned signature actually confers, and why one approval yields one.
 #[tauri::command]
 pub async fn privacy_sign_in(
     state: State<'_, AppState>,
     pubkey: String,
     message: Vec<u8>,
 ) -> Result<Vec<u8>> {
+    state.take_privacy_sign_in(&pubkey)?;
     let key = signing_key(&state, &pubkey)?;
     crate::privacy::sign_in(&key, &message)
 }
 
-/// Sign a Privacy Cash deposit transaction built in the webview.
+/// Sign a Privacy Cash deposit built in the webview, for exactly the amount the
+/// user confirmed.
 #[tauri::command]
 pub async fn privacy_sign_transaction(
     state: State<'_, AppState>,
     pubkey: String,
     transaction: Vec<u8>,
+    expected_lamports: u64,
 ) -> Result<Vec<u8>> {
+    state.check_privacy_grant(&pubkey)?;
     let key = signing_key(&state, &pubkey)?;
-    crate::privacy::sign_transaction(&key, &transaction)
+    crate::privacy::sign_deposit(&key, &transaction, expected_lamports)
 }
 
 #[tauri::command]

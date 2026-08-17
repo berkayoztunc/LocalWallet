@@ -65,6 +65,7 @@ import { SweepDialog } from "../components/SweepDialog";
 import { SendDialog } from "../components/SendDialog";
 import { FundedCleanupDialog } from "../components/FundedCleanupDialog";
 import { StakeDialog } from "../components/StakeDialog";
+import { forgetPrivacyStorage } from "../lib/privacySessions";
 
 /**
  * Privacy Cash pulls in a zero-knowledge prover and its circuits — megabytes
@@ -403,6 +404,10 @@ export function Dashboard({
     if (!ok) return;
     try {
       await api.walletsRemove(wallet.pubkey);
+      // The wallet's Privacy Cash cache — including the plaintext commitment
+      // indices that tie it to specific pool notes — would otherwise survive
+      // under a pubkey this app no longer tracks.
+      forgetPrivacyStorage(wallet.pubkey);
       await loadWallets();
     } catch (e) {
       setError(asAppError(e).message);
