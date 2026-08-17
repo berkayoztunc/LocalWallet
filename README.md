@@ -93,13 +93,13 @@ Everything that describes your money — stake amounts, commissions, delinquency
 
 ## Install
 
-Grab the build for your platform from [**Releases**](https://github.com/berkayoztunc/LocalWallet/releases). The Windows installer is code-signed and the Linux artifacts are GPG-signed; the macOS build is not signed, so it has a first-run hurdle — details below.
+Grab the build for your platform from [**Releases**](https://github.com/berkayoztunc/LocalWallet/releases). The Windows installer is code-signed and the Linux artifacts are GPG-signed. The macOS build is only ad-hoc signed — enough to run, but not attributable to a developer — so it has a first-run hurdle; details below.
 
 ### macOS (Apple Silicon)
 
 Download the `.dmg`, open it, and drag **LocalWallet** to Applications.
 
-macOS will refuse to open it the first time. The build is **not signed with an Apple Developer ID**, so Gatekeeper treats it as unidentified — expected for open-source software distributed outside the App Store. Pick either:
+macOS will refuse to open it the first time, saying it *cannot be opened because Apple cannot check it for malicious software*. The app carries an ad-hoc signature but **not an Apple Developer ID**, so Gatekeeper cannot attribute it to anyone — expected for open-source software distributed outside the App Store. Pick either:
 
 **Through System Settings** — double-click the app, dismiss the warning, then open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**. macOS remembers the choice.
 
@@ -112,6 +112,9 @@ xattr -dr com.apple.quarantine /Applications/LocalWallet.app
 This strips the quarantine flag macOS adds to downloaded files. It is the same thing the Settings button does, without the round trip.
 
 > On macOS 15 and later, right-clicking the app and choosing *Open* no longer bypasses this — Apple removed that path. Use one of the two above.
+
+> [!NOTE]
+> If macOS instead says the app **“is damaged and can’t be opened”**, with only a *Move to Trash* button, you have a release **before v0.3.0**. Those were bundled with no valid signature at all, and Gatekeeper reports a malformed signature as damage. The download is fine — run the `xattr` command above, or update to v0.3.0 or later.
 
 Building from source avoids the warning entirely, since locally built apps are never quarantined.
 
