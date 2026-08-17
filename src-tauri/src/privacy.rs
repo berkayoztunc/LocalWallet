@@ -8,7 +8,7 @@
 //!
 //! The SDK's lower-level entry points take an external signer instead, so the
 //! webview drives the protocol and calls back here whenever a signature is
-//! needed. Only bytes to sign go out; only signatures come back.
+//! needed. The raw secret key does stay in this process.
 //!
 //! Two things get signed:
 //!
@@ -18,9 +18,22 @@
 //! * Deposit transactions, which move funds into the pool and so are signed by
 //!   the depositing wallet like any other transfer.
 //!
-//! Withdrawals are deliberately absent: the pool authorizes those with a zero
-//! knowledge proof rather than a signature, which is precisely what unlinks
-//! the recipient from the depositor.
+//! # What this does not protect
+//!
+//! Keeping the secret key in Rust does **not** keep spend authority over the
+//! shielded balance out of the webview, and it is important not to read it that
+//! way. The SDK derives the pool's spending key from the sign-in signature —
+//! `utxoPrivateKeyV2 = keccak256(keccak256(signature))` — and that key is the
+//! private witness of the withdrawal proof. Withdrawals carry no Solana
+//! signature at all; the relayer submits them. So anyone holding the signature
+//! returned by [`sign_in`] can move that wallet's shielded balance to any
+//! address, offline, without the vault password, and locking the vault or
+//! changing the password does not revoke it.
+//!
+//! That exposure is inherent to running the prover in the webview: it needs the
+//! key. It cannot be argued away, only bounded. As of this commit it is *not*
+//! bounded — any caller may request the signature for any wallet in an unlocked
+//! vault, with no confirmation. Narrowing that is tracked as the next change.
 
 use solana_sdk::signature::Signature;
 use solana_sdk::signer::Signer;
@@ -39,6 +52,12 @@ pub const SIGN_IN_MESSAGE: &str = "Privacy Money account sign in";
 /// Restricted to the one known message on purpose. A general "sign these
 /// bytes" command reachable from the webview is an open-ended signing oracle,
 /// and a Solana transaction is just bytes too.
+///
+/// Note what that restriction does and does not buy. It stops this being a
+/// general oracle; it does not make the return value safe. The one message it
+/// will sign is exactly the message whose signature is the pool spending key,
+/// so the caller receives spend authority over the shielded balance — see the
+/// module docs.
 pub fn sign_in(key: &SigningKey, message: &[u8]) -> Result<Vec<u8>> {
     if message != SIGN_IN_MESSAGE.as_bytes() {
         return Err(AppError::invalid(
@@ -52,8 +71,16 @@ pub fn sign_in(key: &SigningKey, message: &[u8]) -> Result<Vec<u8>> {
 /// Add `key`'s signature to an already-built deposit transaction.
 ///
 /// `tx_bytes` is the wire format the webview produced. The transaction is
-/// signed in place rather than rebuilt, so any signature the relayer has
-/// already contributed survives.
+/// signed in place rather than rebuilt, so the message the user's signature
+/// covers is exactly the one that was handed in — a rebuild could silently
+/// change it. (An earlier comment here claimed this preserved a relayer's
+/// co-signature; deposits carry no other signature, so that was never the
+/// reason.)
+///
+/// This currently signs **any** transaction naming `key` as a required signer,
+/// checking only the signer position — not the programs invoked, the
+/// instructions, or the amount. Constraining it to genuine deposits is the
+/// next change.
 pub fn sign_transaction(key: &SigningKey, tx_bytes: &[u8]) -> Result<Vec<u8>> {
     let mut tx: VersionedTransaction = bincode::deserialize(tx_bytes)
         .map_err(|e| AppError::invalid(format!("not a valid transaction: {e}")))?;

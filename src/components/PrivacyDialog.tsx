@@ -397,8 +397,12 @@ function Disclosure() {
           withdrawing the same unusual amount links the two ends by itself.
         </li>
         <li>
-          Your keys stay in the vault. Signing happens in the backend as it does everywhere else in
-          this app.
+          <span className="text-mist-50">Shielded funds get weaker protection than the rest.</span>{" "}
+          Your wallet key stays in the vault, but the proving code runs in this window and holds
+          what is needed to move your shielded balance — unavoidably, because it cannot generate
+          the proof otherwise. So the pool balance is only as safe as this app's third-party
+          JavaScript, while your ordinary SOL is not exposed that way. A leaked credential stays
+          valid after you lock the vault or change your password.
         </li>
       </ul>
     </div>

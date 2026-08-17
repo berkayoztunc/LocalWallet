@@ -35,7 +35,14 @@ Privacy Cash's proving code is JavaScript and WASM, so it runs in the webview. I
 - `privacy_sign_in` signs one fixed message and compares the requested bytes against it before signing. Anything else is refused.
 - `privacy_sign_transaction` signs a transaction only if it already names the wallet among its required signers, and signs in place without rewriting the message.
 
-Neither returns key material. The narrowness is the point: an unrestricted "sign these bytes" command reachable from the webview would be a signing oracle, and a Solana transaction is also just bytes. Both commands are covered by tests in `src-tauri/src/privacy.rs`.
+Neither returns the raw secret key. But an earlier version of this section implied that settled the matter, and it does not — the correction matters more than the original claim:
+
+**The shielded balance is not protected to the same standard as the rest of the wallet.** The signature `privacy_sign_in` returns is what Privacy Cash derives its pool spending key from, and a withdrawal is authorised by that key with no Solana signature at all — the relayer submits it. So the code running in the webview holds enough to move your shielded funds to any address. That is inherent to running the prover there; it needs the key. Locking the vault or changing your password does not revoke a copy that has already leaked.
+
+Concretely: your ordinary SOL survives a malicious npm dependency, and funds in the pool do not. Two consequences we would rather state than have a user discover:
+
+- Keep the shielded balance to an amount you would accept losing to a bad release of a third-party package.
+- `privacy_sign_transaction` currently signs any transaction naming the wallet as a required signer, checking only the signer position — not the programs invoked, nor the amount. Constraining it to genuine deposits, and requiring explicit per-wallet authorisation before a sign-in signature is issued, are the next changes to this area.
 
 The pool contract and the relayer are third-party code that LocalWallet has not audited. Bugs in them are out of scope here — report those to Privacy Cash — but anything in *this* app that mishandles keys, signs more than it should, or sends a transaction the UI did not describe is very much in scope.
 
