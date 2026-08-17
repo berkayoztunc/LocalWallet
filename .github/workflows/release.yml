@@ -6,8 +6,20 @@ name: Release
 #   git commit -am "Release v0.3.0"
 #   git tag v0.3.0 && git push origin main --tags
 #
-# Builds unsigned installers for macOS, Linux and Windows and attaches them to a
-# *draft* release, so nothing goes public until you review and publish it.
+# Builds installers for macOS, Linux and Windows and attaches them to a *draft*
+# release, so nothing goes public until you review and publish it.
+#
+# Signing, where it applies:
+#
+#   Windows  Authenticode via SignPath Foundation. Because every SignPath
+#            request needs manual approval, this workflow only submits it; run
+#            sign-windows.yml afterwards to attach the signed installer.
+#   Linux    GPG detached signatures plus SHA256SUMS.
+#   macOS    unsigned — notarization needs a paid Apple Developer account.
+#
+# Both signing paths are inert until their secrets exist: with none configured
+# this behaves exactly as it did before signing was added, and Windows falls
+# back to publishing the unsigned installer.
 #
 # The release notes come from .github/release-notes.md.
 on:
@@ -27,6 +39,9 @@ jobs:
       contents: write
     outputs:
       release_id: ${{ steps.draft.outputs.result }}
+      # `gh release upload` addresses a release by tag, not id, and the signing
+      # steps below upload outside tauri-action.
+      tag: ${{ steps.tag.outputs.name }}
 
     steps:
       - uses: actions/checkout@v7
@@ -103,6 +118,16 @@ jobs:
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
+    # Secrets are mapped into `env` here because the `secrets` context cannot be
+    # read from an `if:` condition. Every signing step below branches on these
+    # being non-empty, which is what lets the whole pipeline run unchanged on a
+    # fork or before the signing accounts exist.
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      # Not a secret: it is published in the README so users can verify.
+      GPG_KEY_ID: ${{ vars.GPG_KEY_ID }}
     strategy:
       # One platform failing should not throw away the other two builds.
       fail-fast: false
@@ -170,10 +195,175 @@ jobs:
       - name: Tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      # Imported before the build so appimagetool can embed a signature while it
+      # bundles. The detached signatures further down are made from the same key.
+      - name: Import the GPG signing key
+        if: matrix.runner == 'ubuntu-22.04' && env.GPG_PRIVATE_KEY != ''
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          printf '%s' "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --yes --import
+          # gpg refuses to take a passphrase on stdin without this.
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          gpgconf --reload gpg-agent
+          gpg --list-secret-keys --keyid-format LONG
+
+      # Written to $GITHUB_ENV rather than the build step's own `env:`, because
+      # appimagetool treats SIGN as set even when it is the empty string — a
+      # ternary there would make an unconfigured build try to sign with no key.
+      #
+      # APPIMAGETOOL_FORCE_SIGN is the load-bearing one: without it a broken key
+      # yields a silently unsigned AppImage.
+      - name: Enable the AppImage embedded signature
+        if: matrix.runner == 'ubuntu-22.04' && env.GPG_PRIVATE_KEY != ''
+        run: |
+          {
+            echo "SIGN=1"
+            echo "APPIMAGETOOL_FORCE_SIGN=1"
+            echo "APPIMAGETOOL_SIGN_PASSPHRASE=$GPG_PASSPHRASE"
+            if [ -n "${GPG_KEY_ID:-}" ]; then echo "SIGN_KEY=$GPG_KEY_ID"; fi
+          } >> "$GITHUB_ENV"
+
       - name: Build and upload
+        id: build
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
-          releaseId: ${{ needs.prepare.outputs.release_id }}
+          # tauri-action only uploads when releaseId is non-empty, so passing an
+          # empty string on Windows turns this into a build-only step. That is
+          # deliberate and load-bearing: the Windows installer is uploaded by
+          # exactly one later step — the signed one, or the unsigned fallback —
+          # so a signed and an unsigned exe can never both end up on a release.
+          releaseId: ${{ matrix.runner == 'windows-latest' && '' || needs.prepare.outputs.release_id }}
+
+      # ---------------------------------------------------------------- Linux
+
+      - name: Sign the Linux bundles
+        if: matrix.runner == 'ubuntu-22.04' && env.GPG_PRIVATE_KEY != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p sigs && cd sigs
+          # Copied from the bundle directory rather than re-downloaded, so the
+          # checksums describe the same bytes tauri-action just uploaded.
+          cp ../src-tauri/target/release/bundle/deb/*.deb .
+          cp ../src-tauri/target/release/bundle/appimage/*.AppImage .
+          sha256sum -- *.deb *.AppImage > SHA256SUMS
+          for file in *.deb *.AppImage SHA256SUMS; do
+            gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" \
+              ${GPG_KEY_ID:+--local-user "$GPG_KEY_ID"} \
+              --armor --detach-sign --output "$file.asc" "$file"
+            # Fail here rather than publishing a signature that does not verify.
+            gpg --verify "$file.asc" "$file"
+          done
+          gh release upload "${{ needs.prepare.outputs.tag }}" \
+            SHA256SUMS SHA256SUMS.asc ./*.deb.asc ./*.AppImage.asc \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+      # -------------------------------------------------------------- Windows
+
+      - name: Locate the NSIS installer
+        id: nsis
+        if: matrix.runner == 'windows-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `--bundles nsis` produces exactly one installer. Prefer the path
+          # tauri-action reports; fall back to the glob if its output shape
+          # ever changes.
+          exe=$(printf '%s' '${{ steps.build.outputs.artifactPaths }}' \
+                | jq -r '.[]? | select(endswith("-setup.exe"))' || true)
+          if [ -z "$exe" ]; then
+            exe=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe)
+          fi
+          test -f "$exe"
+          echo "path=$exe" >> "$GITHUB_OUTPUT"
+
+      # SignPath will only sign an artifact GitHub itself is holding — that is
+      # how it proves the binary came from this workflow and not from whoever
+      # holds the API token.
+      - name: Stage the installer for signing
+        id: unsigned
+        if: matrix.runner == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-unsigned
+          path: ${{ steps.nsis.outputs.path }}
+          if-no-files-found: error
+          # sign-windows.yml may need this days later, after approval.
+          retention-days: 30
+
+      - name: Submit the signing request
+        id: signpath
+        if: matrix.runner == 'windows-latest' && env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          # Identifiers rather than credentials, so they stay legible in the
+          # workflow: a reader can see which policy signed a given build.
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: localwallet
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: nsis-installer
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          # Every SignPath request needs a human to approve it. Waiting here
+          # would park a runner on that, so the signed installer is attached
+          # later by sign-windows.yml.
+          wait-for-completion: false
+
+      - name: Report the signing request
+        if: matrix.runner == 'windows-latest' && env.SIGNPATH_API_TOKEN != ''
+        shell: bash
+        run: |
+          {
+            echo "### Windows installer awaiting signature"
+            echo
+            echo "Approve the request, then run the **Sign Windows installer** workflow with:"
+            echo
+            echo "| input | value |"
+            echo "| --- | --- |"
+            echo "| \`tag\` | \`${{ needs.prepare.outputs.tag }}\` |"
+            echo "| \`signed_artifact_url\` | \`${{ steps.signpath.outputs.signed-artifact-download-url }}\` |"
+            echo
+            echo "Request: ${{ steps.signpath.outputs.signing-request-web-url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The draft deliberately carries no Windows asset until it is signed.
+      # Uploading the unsigned one and trusting a later --clobber to replace it
+      # is how an unsigned binary ends up published as though it were signed.
+      # An asset that is merely missing is safe; an asset that is missing and
+      # unmentioned is not, hence the banner.
+      - name: Flag the release as awaiting a signature
+        if: matrix.runner == 'windows-latest' && env.SIGNPATH_API_TOKEN != ''
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          MARKER: '> [!WARNING]'
+          NOTE: '**The Windows installer is awaiting its code signature** and is not attached yet. Do not publish this release until `sign-windows.yml` has run.'
+        with:
+          script: |
+            const release_id = Number(process.env.RELEASE_ID);
+            const { data } = await github.rest.repos.getRelease({ ...context.repo, release_id });
+            if (data.body && data.body.includes('awaiting its code signature')) return;
+            const banner = `${process.env.MARKER}\n${process.env.NOTE}`;
+            await github.rest.repos.updateRelease({
+              ...context.repo,
+              release_id,
+              body: `${banner}\n\n${data.body ?? ''}`,
+            });
+
+      # The only other path that publishes a Windows installer. Reproduces the
+      # behaviour from before signing existed, so an unconfigured repo — or a
+      # fork — still gets a complete release.
+      - name: Publish the unsigned installer (SignPath not configured)
+        if: matrix.runner == 'windows-latest' && env.SIGNPATH_API_TOKEN == ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ needs.prepare.outputs.tag }}" \
+            "${{ steps.nsis.outputs.path }}" --clobber --repo "$GITHUB_REPOSITORY"

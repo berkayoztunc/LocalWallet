@@ -125,6 +125,13 @@ export function Dashboard({
   const [sendTarget, setSendTarget] = useState<Wallet | null>(null);
   const [stakeTarget, setStakeTarget] = useState<Wallet | null>(null);
   const [privacyTarget, setPrivacyTarget] = useState<Wallet | null>(null);
+  // Shielded balances are not fetched with the others: finding which pool notes
+  // belong to a wallet means trying to decrypt every note in the pool, so each
+  // one is scanned only when asked for. `poolStatus` carries the SDK's progress
+  // line, since a scan runs long enough that a bare spinner reads as a hang.
+  const [pool, setPool] = useState<Record<string, number>>({});
+  const [poolScanning, setPoolScanning] = useState<string | null>(null);
+  const [poolStatus, setPoolStatus] = useState<string>("");
   // Addresses are masked by default: this table is the screen most likely to
   // be shared or screenshotted, and a pubkey is a permanent handle on someone.
   const [addressesShown, setAddressesShown] = useState(false);
@@ -323,6 +330,42 @@ export function Dashboard({
     return [...matched].sort((a, b) => rank(b) - rank(a) || a.label.localeCompare(b.label));
   }, [wallets, query, balances]);
 
+  /**
+   * Read one wallet's shielded balance.
+   *
+   * Gated on the disclosure: this is the first thing in the app that talks to
+   * Privacy Cash's relayer, and doing that silently from the wallet list would
+   * contradict what the app promises about third-party requests. Unacknowledged,
+   * the click opens the dialog instead, which is where the warning lives.
+   *
+   * The SDK is imported here rather than at the top of the file so that the
+   * prover and its circuits stay out of the startup bundle.
+   */
+  async function scanPool(w: Wallet) {
+    if (!settings.privacy_cash_ack) {
+      setPrivacyTarget(w);
+      setDialog("privacy");
+      return;
+    }
+    setPoolScanning(w.pubkey);
+    setPoolStatus("");
+    setError(null);
+    try {
+      const { openPrivacySession, privateBalance } = await import("../lib/privacyCash");
+      const session = await openPrivacySession(w.pubkey, settings.rpc_url);
+      const { lamports } = await privateBalance(session, { onStatus: setPoolStatus });
+      setPool((p) => ({ ...p, [w.pubkey]: lamports }));
+    } catch (e) {
+      setError(`${w.label}: ${asAppError(e).message}`);
+    } finally {
+      setPoolScanning(null);
+      setPoolStatus("");
+    }
+  }
+
+  const poolScanned = Object.keys(pool).length;
+  const poolTotal = Object.values(pool).reduce((sum, n) => sum + n, 0);
+
   const cluster = clusterFromRpc(settings.rpc_url);
 
   async function copyAddress(pubkey: string) {
@@ -499,6 +542,13 @@ export function Dashboard({
                 <Th numeric className="w-32 border-l border-ink-600">
                   SOL
                 </Th>
+                <Th
+                  numeric
+                  className="w-28 border-l border-ink-600"
+                  title="Shielded balance held in Privacy Cash. Scanned per wallet on request — finding a wallet's notes means trying every note in the pool against its key, so it cannot be read in bulk."
+                >
+                  Pool
+                </Th>
                 <Th className="w-28 border-l border-ink-600">Tokens</Th>
                 <Th className="w-44 border-l border-ink-600" />
               </tr>
@@ -591,6 +641,46 @@ export function Dashboard({
                           <Skeleton className="ml-auto h-3 w-14" />
                         ) : (
                           toSol(balances[w.pubkey])
+                        )}
+                      </Td>
+
+                      {/* Same idea as the Tokens cell: unscanned it offers to
+                          scan this one wallet, scanned it shows the figure. A
+                          shielded balance cannot be read in bulk. */}
+                      <Td numeric className="border-l border-ink-600/60 font-mono">
+                        {poolScanning === w.pubkey ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 text-[11px] text-mist-500"
+                            title={poolStatus || "Reading the pool"}
+                          >
+                            <Spinner /> scanning
+                          </span>
+                        ) : pool[w.pubkey] !== undefined ? (
+                          <button
+                            className={cx(
+                              "-mx-1 px-1 font-mono outline-none transition-colors",
+                              "hover:bg-ink-700 focus-visible:ring-1 focus-visible:ring-brand-500",
+                              pool[w.pubkey] > 0 ? "text-cyan-brand" : "text-mist-500",
+                            )}
+                            title="Re-read this wallet's shielded balance"
+                            disabled={poolScanning !== null}
+                            onClick={() => scanPool(w)}
+                          >
+                            {toSol(pool[w.pubkey])}
+                          </button>
+                        ) : (
+                          <button
+                            className="-mx-1 px-1 text-[11px] text-mist-500 outline-none transition-colors hover:bg-ink-700 hover:text-cyan-brand focus-visible:ring-1 focus-visible:ring-brand-500 disabled:opacity-40"
+                            title={
+                              poolScanning
+                                ? "Another wallet is being scanned — they cannot run at the same time"
+                                : `Read ${w.label}'s shielded balance. Tries all ~750,000 pool notes against its key, so the first scan of a wallet takes a while.`
+                            }
+                            disabled={poolScanning !== null}
+                            onClick={() => scanPool(w)}
+                          >
+                            scan
+                          </button>
                         )}
                       </Td>
 
@@ -740,7 +830,7 @@ export function Dashboard({
 
                     {isOpen && walletTokens && (
                       <tr>
-                        <td colSpan={5} className="p-0">
+                        <td colSpan={6} className="p-0">
                           <TokenRow tokens={walletTokens} settings={settings} />
                         </td>
                       </tr>
@@ -760,6 +850,18 @@ export function Dashboard({
         <StatusDivider />
         <StatusItem value={`${toSol(total)} SOL`} tone="brand" />
         <StatusItem value={`${funded} funded`} />
+        {/* Only ever a partial total: it covers the wallets scanned so far,
+            which is why it says how many that is. */}
+        {poolScanned > 0 && (
+          <>
+            <StatusDivider />
+            <StatusItem
+              value={`${toSol(poolTotal)} in pool`}
+              label={`${poolScanned}/${wallets.length} scanned`}
+              tone="cyan"
+            />
+          </>
+        )}
         <StatusDivider />
         {tokenTotals ? (
           <>
@@ -841,12 +943,21 @@ export function Dashboard({
             wallet={privacyTarget}
             wallets={wallets}
             balance={balances[privacyTarget.pubkey] ?? null}
+            pooled={pool[privacyTarget.pubkey] ?? null}
             onSettingsChanged={onSettingsChanged}
             onClose={() => {
               setDialog(null);
               setPrivacyTarget(null);
             }}
-            onFinished={refreshBalances}
+            onFinished={(pooled) => {
+              refreshBalances();
+              // The dialog has just read this wallet's pool balance as part of
+              // the operation, so take its figure rather than making the row
+              // re-scan for it.
+              if (pooled !== null) {
+                setPool((p) => ({ ...p, [privacyTarget.pubkey]: pooled }));
+              }
+            }}
           />
         </Suspense>
       )}

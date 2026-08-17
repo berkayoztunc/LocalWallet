@@ -1,0 +1,131 @@
+name: Sign Windows installer
+
+# Phase two of Windows code signing.
+#
+# SignPath requires a human to approve every signing request, so release.yml
+# submits the request and stops rather than parking a runner on it. Once the
+# request is approved at https://app.signpath.io, run this workflow to attach
+# the signed installer to the draft release and clear the warning banner
+# release.yml added.
+#
+# The inputs are printed in the release run's summary — copy them from there.
+#
+# If SignPath declines the request, or you need to ship without it, run this
+# with `fallback_unsigned` set. That attaches the installer release.yml already
+# built, unsigned, which is what earlier versions shipped.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v0.3.0'
+        required: true
+      signed_artifact_url:
+        description: 'SignPath signed-artifact URL (from the release run summary)'
+        required: false
+      fallback_unsigned:
+        description: 'Attach the UNSIGNED installer instead'
+        type: boolean
+        default: false
+
+jobs:
+  attach:
+    name: Attach the Windows installer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # Needed to download the workflow artifact release.yml staged.
+      actions: read
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Check the inputs make sense
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.fallback_unsigned }}" = "true" ]; then
+            echo "::warning::Attaching the UNSIGNED installer for ${{ inputs.tag }}."
+            exit 0
+          fi
+          if [ -z "$SIGNPATH_API_TOKEN" ]; then
+            echo "::error::SIGNPATH_API_TOKEN is not set, so there is no signed artifact to fetch."
+            exit 1
+          fi
+          if [ -z "${{ inputs.signed_artifact_url }}" ]; then
+            echo "::error::signed_artifact_url is required. Copy it from the release run's summary."
+            exit 1
+          fi
+
+      # SignPath publishes no download-only action, so this is a plain API call
+      # against the URL the submit step already reported. Taking the URL as an
+      # input rather than rebuilding it from ids keeps this working if their API
+      # layout changes.
+      - name: Download the signed installer
+        if: ${{ !inputs.fallback_unsigned }}
+        run: |
+          set -euo pipefail
+          mkdir -p installer
+          curl -fSL --retry 3 \
+            -H "Authorization: Bearer $SIGNPATH_API_TOKEN" \
+            -o signed.zip "${{ inputs.signed_artifact_url }}"
+          # SignPath returns the artifact in the same shape it was submitted,
+          # which upload-artifact made a zip.
+          if unzip -tq signed.zip 2>/dev/null; then
+            unzip -o -j signed.zip -d installer
+          else
+            mv signed.zip "installer/$(basename '${{ inputs.tag }}')-setup.exe"
+          fi
+          rm -f signed.zip
+          ls -l installer
+
+      - name: Download the unsigned installer
+        if: ${{ inputs.fallback_unsigned }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh run list --workflow release.yml --json databaseId,headBranch \
+            --jq "[.[] | select(.headBranch == \"${{ inputs.tag }}\")][0].databaseId" \
+            --repo "$GITHUB_REPOSITORY")
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "::error::Found no release.yml run for ${{ inputs.tag }}. The artifact may have expired."
+            exit 1
+          fi
+          gh run download "$run_id" -n windows-installer-unsigned -D installer \
+            --repo "$GITHUB_REPOSITORY"
+
+      # Checked before it is attached, so a signature that does not verify never
+      # reaches a release. osslsigncode reads Authenticode on Linux, which is why
+      # this job does not need a Windows runner.
+      - name: Verify the Authenticode signature
+        if: ${{ !inputs.fallback_unsigned }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y osslsigncode
+          exe=$(ls installer/*-setup.exe)
+          osslsigncode verify -in "$exe"
+
+      - name: Attach it to the release
+        run: |
+          set -euo pipefail
+          gh release upload "${{ inputs.tag }}" installer/*-setup.exe \
+            --clobber --repo "$GITHUB_REPOSITORY"
+
+      # Only once a signed installer is actually on the release. The fallback
+      # leaves the banner in place on purpose: the release really does carry an
+      # unsigned installer, and saying so is the point.
+      - name: Clear the pending-signature banner
+        if: ${{ !inputs.fallback_unsigned }}
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ inputs.tag }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            const { data: release } = await github.rest.repos.getReleaseByTag({ ...context.repo, tag });
+            if (!release.body || !release.body.includes('awaiting its code signature')) return;
+            const body = release.body
+              .split('\n')
+              .filter((line) => !line.includes('awaiting its code signature') && line.trim() !== '> [!WARNING]')
+              .join('\n')
+              .replace(/^\n+/, '');
+            await github.rest.repos.updateRelease({ ...context.repo, release_id: release.id, body });
