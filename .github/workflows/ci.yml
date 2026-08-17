@@ -76,9 +76,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Pinned rather than `lts/*`: Privacy Cash's SDK requires Node 24, and a
+      # floating version also floats npm, which resolves optional peer
+      # dependencies differently and desynchronises the lock file.
       - uses: actions/setup-node@v6
         with:
-          node-version: lts/*
+          node-version: "24"
           cache: npm
 
       - run: npm ci

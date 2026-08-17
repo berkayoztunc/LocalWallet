@@ -68,9 +68,7 @@ pub fn sign_transaction(key: &SigningKey, tx_bytes: &[u8]) -> Result<Vec<u8>> {
         .static_account_keys()
         .iter()
         .position(|k| *k == pubkey)
-        .ok_or_else(|| {
-            AppError::invalid("transaction does not name this wallet as a signer")
-        })?;
+        .ok_or_else(|| AppError::invalid("transaction does not name this wallet as a signer"))?;
 
     let required = tx.message.header().num_required_signatures as usize;
     if position >= required {
