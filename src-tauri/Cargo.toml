@@ -1,6 +1,6 @@
 [package]
 name = "localwallet"
-version = "0.3.0"
+version = "0.3.1"
 description = "Local Solana multi-wallet vault and sweeper"
 authors = ["you"]
 edition = "2021"
