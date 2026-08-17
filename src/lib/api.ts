@@ -54,6 +54,8 @@ export interface Settings {
   funder_pubkey: string | null;
   validator_directory: boolean;
   menubar: boolean;
+  /** Whether the Privacy Cash disclosure has been shown and accepted. */
+  privacy_cash_ack: boolean;
 }
 
 export interface RpcHealth {

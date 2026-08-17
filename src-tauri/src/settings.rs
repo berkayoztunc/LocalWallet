@@ -43,6 +43,10 @@ pub struct Settings {
     /// is locked - the only holdings information this app keeps outside the
     /// encrypted vault. Turning it off deletes that file.
     pub menubar: bool,
+    /// Whether the user has read the Privacy Cash disclosure. Privacy Cash is
+    /// a third-party protocol on mainnet with its own relayer and contract
+    /// risk, so the first use has to be a deliberate one.
+    pub privacy_cash_ack: bool,
 }
 
 impl Default for Settings {
@@ -58,6 +62,7 @@ impl Default for Settings {
             funder_pubkey: None,
             validator_directory: true,
             menubar: true,
+            privacy_cash_ack: false,
         }
     }
 }

@@ -3,6 +3,7 @@ mod error;
 mod funded_cleanup;
 mod keys;
 mod menubar;
+mod privacy;
 mod rpc;
 mod settings;
 mod stake;
@@ -239,6 +240,8 @@ pub fn run() {
             commands::funded_cleanup_run,
             commands::send_quote,
             commands::send_sol,
+            commands::privacy_sign_in,
+            commands::privacy_sign_transaction,
             commands::sweep_preview,
             commands::stake_scan,
             commands::stake_quote,

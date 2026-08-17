@@ -1,4 +1,13 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
 import {
@@ -40,8 +49,11 @@ import {
   IconClose,
   IconCopy,
   IconExternal,
+  IconEye,
+  IconEyeOff,
   IconStake,
   IconFund,
+  IconLock,
   IconSend,
   IconStar,
   IconTrash,
@@ -54,7 +66,24 @@ import { SendDialog } from "../components/SendDialog";
 import { FundedCleanupDialog } from "../components/FundedCleanupDialog";
 import { StakeDialog } from "../components/StakeDialog";
 
-type Dialog = "import" | "cleanup" | "funded-cleanup" | "sweep" | "send" | "stake" | null;
+/**
+ * Privacy Cash pulls in a zero-knowledge prover and its circuits — megabytes
+ * that most sessions never touch. Loading it only when the dialog opens keeps
+ * it out of the startup path.
+ */
+const PrivacyDialog = lazy(() =>
+  import("../components/PrivacyDialog").then((m) => ({ default: m.PrivacyDialog })),
+);
+
+type Dialog =
+  | "import"
+  | "cleanup"
+  | "funded-cleanup"
+  | "sweep"
+  | "send"
+  | "stake"
+  | "privacy"
+  | null;
 
 /**
  * The smallest balance a wallet can actually transact from: the rent-exempt
@@ -95,6 +124,10 @@ export function Dashboard({
   const [copied, setCopied] = useState<string | null>(null);
   const [sendTarget, setSendTarget] = useState<Wallet | null>(null);
   const [stakeTarget, setStakeTarget] = useState<Wallet | null>(null);
+  const [privacyTarget, setPrivacyTarget] = useState<Wallet | null>(null);
+  // Addresses are masked by default: this table is the screen most likely to
+  // be shared or screenshotted, and a pubkey is a permanent handle on someone.
+  const [addressesShown, setAddressesShown] = useState(false);
   const [version, setVersion] = useState("");
   // Kept in state so the array identity is stable — an inline literal would
   // re-trigger the dialogs' preview effects on every render.
@@ -274,13 +307,21 @@ export function Dashboard({
   }, [tokens]);
 
   // Search matches label or address, so pasting a full pubkey finds its row.
+  //
+  // Rows then sort by balance, richest first, which is the order that answers
+  // "where is the money" at a glance. Wallets whose balance has not been read
+  // yet sort last rather than as zero — unknown is not empty, and floating
+  // them to the top of an empty table would be noise.
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return wallets;
-    return wallets.filter(
-      (w) => w.label.toLowerCase().includes(q) || w.pubkey.toLowerCase().includes(q),
-    );
-  }, [wallets, query]);
+    const matched = q
+      ? wallets.filter(
+          (w) => w.label.toLowerCase().includes(q) || w.pubkey.toLowerCase().includes(q),
+        )
+      : wallets;
+    const rank = (w: Wallet) => balances[w.pubkey] ?? -1;
+    return [...matched].sort((a, b) => rank(b) - rank(a) || a.label.localeCompare(b.label));
+  }, [wallets, query, balances]);
 
   const cluster = clusterFromRpc(settings.rpc_url);
 
@@ -442,7 +483,19 @@ export function Dashboard({
             <thead>
               <tr>
                 <Th className="w-[20%]">Label</Th>
-                <Th className="border-l border-ink-600">Address</Th>
+                <Th className="border-l border-ink-600">
+                  <span className="inline-flex items-center gap-1.5">
+                    Address
+                    <button
+                      className="text-mist-500 outline-none transition-colors hover:text-mist-50 focus-visible:ring-1 focus-visible:ring-brand-500"
+                      title={addressesShown ? "Hide addresses" : "Reveal addresses"}
+                      aria-pressed={addressesShown}
+                      onClick={() => setAddressesShown((v) => !v)}
+                    >
+                      {addressesShown ? <IconEyeOff size={11} /> : <IconEye size={11} />}
+                    </button>
+                  </span>
+                </Th>
                 <Th numeric className="w-32 border-l border-ink-600">
                   SOL
                 </Th>
@@ -509,12 +562,17 @@ export function Dashboard({
                       </Td>
 
                       <Td className="border-l border-ink-600/60">
+                        {/* Masking is display only: the tooltip and the copy
+                            both still carry the real address, so a hidden row
+                            stays as usable as a shown one. */}
                         <button
                           className="group/copy -mx-1 inline-flex max-w-full items-center gap-1.5 px-1 font-mono text-[11px] text-mist-300 outline-none hover:bg-ink-700 hover:text-mist-50 focus-visible:ring-1 focus-visible:ring-brand-500"
                           title={`${w.pubkey}\nClick to copy`}
                           onClick={() => copyAddress(w.pubkey)}
                         >
-                          <span className="truncate">{shortKey(w.pubkey)}</span>
+                          <span className="truncate">
+                            {addressesShown ? shortKey(w.pubkey) : "••••••••••••"}
+                          </span>
                           <span
                             className={cx(
                               "shrink-0",
@@ -642,6 +700,17 @@ export function Dashboard({
                           </IconButton>
 
                           <IconButton
+                            label={`Send privately from ${w.label} through Privacy Cash`}
+                            tone="cyan"
+                            onClick={() => {
+                              setPrivacyTarget(w);
+                              setDialog("privacy");
+                            }}
+                          >
+                            <IconLock />
+                          </IconButton>
+
+                          <IconButton
                             label={
                               isFunder
                                 ? "This is the funding wallet — click to unset"
@@ -764,6 +833,22 @@ export function Dashboard({
           }}
           onStaked={refreshBalances}
         />
+      )}
+      {dialog === "privacy" && privacyTarget && (
+        <Suspense fallback={null}>
+          <PrivacyDialog
+            settings={settings}
+            wallet={privacyTarget}
+            wallets={wallets}
+            balance={balances[privacyTarget.pubkey] ?? null}
+            onSettingsChanged={onSettingsChanged}
+            onClose={() => {
+              setDialog(null);
+              setPrivacyTarget(null);
+            }}
+            onFinished={refreshBalances}
+          />
+        </Suspense>
       )}
       {dialog === "send" && sendTarget && (
         <SendDialog

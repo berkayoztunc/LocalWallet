@@ -28,3 +28,6 @@ dist-ssr
 
 # Build artefacts that should only ever come from a release build
 *.dmg
+
+# Note cache written by scripts/simulate-privacy.mjs
+.privacy-sim-cache
