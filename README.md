@@ -93,7 +93,7 @@ Everything that describes your money — stake amounts, commissions, delinquency
 
 ## Install
 
-Grab the build for your platform from [**Releases**](https://github.com/berkayoztunc/LocalWallet/releases). Nothing is code-signed on any platform, so each one has a first-run hurdle — details below.
+Grab the build for your platform from [**Releases**](https://github.com/berkayoztunc/LocalWallet/releases). The Windows installer is code-signed and the Linux artifacts are GPG-signed; the macOS build is not signed, so it has a first-run hurdle — details below.
 
 ### macOS (Apple Silicon)
 
@@ -119,7 +119,9 @@ Apple Silicon only for now.
 
 ### Windows (x64)
 
-Download the `.exe` setup and run it. The build is **not code-signed**, so SmartScreen shows *Windows protected your PC*: click **More info → Run anyway**.
+Download the `.exe` setup and run it. It is signed with a certificate from [SignPath Foundation](https://signpath.org) — the UAC prompt should name them as the publisher.
+
+SmartScreen builds reputation per certificate over time, so a new release may still show *Windows protected your PC* even though the installer is signed. If it does, check the publisher in the UAC prompt before clicking **More info → Run anyway**. An installer with no publisher, or a different one, did not come from here.
 
 Windows tray icons cannot carry text, so the total appears when you hover the icon rather than beside it. Everything else works the same.
 
@@ -137,6 +139,25 @@ sudo apt install ./LocalWallet_*.deb
 ```
 
 The tray total needs a desktop that speaks AppIndicator. KDE, Cinnamon, Budgie and Unity do out of the box; **GNOME does not** — install the [AppIndicator and KStatusNotifierItem Support](https://extensions.gnome.org/extension/615/appindicator-support/) extension. Without a tray the app still works fully; closing the window then quits it rather than hiding it to an icon that is not there.
+
+#### Verifying a Linux download
+
+Each release carries a `SHA256SUMS` file and a detached `SHA256SUMS.asc` signature, plus a `.asc` per artifact. The signing key fingerprint is:
+
+<!-- Replace with the real fingerprint once the release signing key exists. -->
+```
+(not yet published — the release signing key is being set up)
+```
+
+```bash
+gpg --recv-keys <FINGERPRINT>                  # once, from a keyserver
+gpg --verify SHA256SUMS.asc SHA256SUMS         # is the list genuine?
+sha256sum --ignore-missing -c SHA256SUMS       # do the files match it?
+```
+
+The first command establishes that the checksum list came from this project; the second that your download matches the list. Both matter — a checksum you downloaded alongside the file proves nothing on its own.
+
+The AppImage also carries an embedded signature, but **AppImage does not check it** when running, so treat the detached signature above as the real verification path.
 
 ## Getting started
 
@@ -245,11 +266,38 @@ Node 24 or newer is required: Privacy Cash's SDK will not install or run below i
 
 Release builds for all three platforms are produced by GitHub Actions — see `.github/workflows/release.yml`. Nothing has to be built locally to cut a release.
 
+Signing runs in CI too, and stays inert until its secrets exist, so a fork builds exactly as this repo did before signing was added:
+
+| Secret / variable | Kind | Purpose |
+|---|---|---|
+| `SIGNPATH_API_TOKEN` | secret | SignPath API token. Its presence is the on/off switch for Windows signing. |
+| `SIGNPATH_ORGANIZATION_ID` | variable | SignPath organization id. |
+| `GPG_PRIVATE_KEY` | secret | `gpg --armor --export-secret-keys <fpr> \| base64`. The on/off switch for Linux signing. |
+| `GPG_PASSPHRASE` | secret | Passphrase for that key. |
+| `GPG_KEY_ID` | variable | Fingerprint of the signing key. Public — it is printed above. |
+
+Because SignPath requires a person to approve every signing request, Windows signing is two steps: the release run submits the request, then `.github/workflows/sign-windows.yml` attaches the signed installer once approved. Until it runs, the draft release carries a warning banner and no Windows asset — deliberately, so an unsigned installer is never published as though it were signed.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+**Roles.** LocalWallet is a one-person project, so the same person holds every role: [berkayoztunc](https://github.com/berkayoztunc) is the sole author, reviewer and approver. Changes are committed by them, pull requests from anyone else are reviewed by them, and each signing request is approved by them.
+
+**Privacy.** LocalWallet is a wallet, so it necessarily talks to the network — it cannot claim to transfer nothing. Specifically it contacts:
+
+- the Solana RPC endpoint **you configure**, for all chain reads and every transaction;
+- `api.stakewiz.com` for validator names, and `api.coingecko.com` for the SOL price — both on by default, both individually disableable in Settings, and neither is ever sent an address, a balance or a key;
+- `api3.privacycash.org` (Privacy Cash's relayer) **only** if you use the opt-in private-send feature, which necessarily sends pool notes, proofs and a recipient address, and which is gated behind an explicit warning.
+
+With the two optional lookups turned off and private send unused, the app contacts nothing but your own RPC endpoint. See [Network access](#network-access) for the per-host detail and [Private send](#private-send-privacy-cash) for what Privacy Cash receives. Your keys never leave your machine, encrypted at rest in the vault; there is no account, no telemetry and no server belonging to this project.
+
 ## Roadmap
 
 - [x] Windows and Linux builds
-- [ ] Signed and notarized macOS releases
-- [ ] Signed Windows installers
+- [x] Signed Windows installers (SignPath Foundation)
+- [x] GPG-signed Linux artifacts and published checksums
+- [ ] Signed and notarized macOS releases — needs a paid Apple Developer account
 - [ ] Auto-update
 - [ ] Delegating new stake from the app (currently view and unwind only)
 - [ ] SPL token sweeping (currently SOL only)

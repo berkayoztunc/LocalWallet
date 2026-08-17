@@ -54,6 +54,7 @@ Data from the directory is treated as untrusted decoration. Every figure the app
 - **Transaction construction** — a transaction that sends funds somewhere other than what the UI showed and the user confirmed
 - **Confirmation bypass** — anything that lets a destructive action run without the preview and explicit confirmation it is supposed to require
 - **Supply chain** — a dependency shipping something it shouldn't
+- **Release integrity** — anything that could get an unsigned or third-party binary published as though it were signed by this project, or that weakens the checksum/signature chain a user is told to verify
 - **The validator directory** — anything that lets its response influence a transaction, an amount, or an address the app acts on
 - **The private-send signing proxy** — anything that widens what `privacy_sign_in` or `privacy_sign_transaction` will put a signature on
 
@@ -64,6 +65,12 @@ Data from the directory is treated as untrusted decoration. Every figure the app
 - RPC provider behaviour, downtime, or rate limiting
 - Rent that cannot be reclaimed because a token's creator holds the close authority — that is how SPL Token works, not a bug here
 - Loss of funds from confirming an action the app described accurately
+
+## Verifying what you downloaded
+
+Windows installers are Authenticode-signed with a [SignPath Foundation](https://signpath.org) certificate; Linux artifacts ship a GPG-signed `SHA256SUMS`. The README has the fingerprint and the commands. **macOS builds are not signed** — notarization requires a paid Apple Developer account this project does not have, so on macOS the only integrity check available is building from source.
+
+Signing happens in GitHub Actions from a tagged commit, never on a maintainer's machine, and the private keys are held by SignPath's HSM and GitHub secrets rather than being exportable from a laptop.
 
 ## What this project does not claim
 
