@@ -116,7 +116,7 @@ This strips the quarantine flag macOS adds to downloaded files. It is the same t
 > On macOS 15 and later, right-clicking the app and choosing *Open* no longer bypasses this — Apple removed that path. Use one of the two above.
 
 > [!NOTE]
-> If macOS instead says the app **“is damaged and can’t be opened”**, with only a *Move to Trash* button, you have a release **before v0.3.0**. Those were bundled with no valid signature at all, and Gatekeeper reports a malformed signature as damage. The download is fine — run the `xattr` command above, or update to v0.3.0 or later.
+> If macOS instead says the app **“is damaged and can’t be opened”**, with only a *Move to Trash* button, you have a release **before v0.3.1**. Those were bundled with no valid signature at all, and Gatekeeper reports a malformed signature as damage. The download is fine — run the `xattr` command above, or update to v0.3.1 or later.
 
 Building from source avoids the warning entirely, since locally built apps are never quarantined.
 
