@@ -80,9 +80,78 @@ mod secret_bytes {
     }
 }
 
+/// Last-known figures for one wallet, so the list can show something the moment
+/// the vault opens instead of an empty table waiting on the network.
+///
+/// They live inside the encrypted vault on purpose: per-wallet balances next to
+/// addresses are exactly the holdings information this app otherwise refuses to
+/// leave in cleartext. Every field defaults, so vaults written before this
+/// existed (and fields added later) still open.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct WalletSnapshot {
+    #[serde(default)]
+    pub lamports: Option<u64>,
+    /// Unix seconds when `lamports` was read.
+    #[serde(default)]
+    pub balance_at: Option<i64>,
+    #[serde(default)]
+    pub token_accounts: Option<u32>,
+    #[serde(default)]
+    pub tokens_with_balance: Option<u32>,
+    #[serde(default)]
+    pub tokens_empty: Option<u32>,
+    #[serde(default)]
+    pub reclaimable_lamports: Option<u64>,
+    /// Unix seconds when the token figures were read.
+    #[serde(default)]
+    pub tokens_at: Option<i64>,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 pub struct VaultData {
     pub wallets: Vec<StoredWallet>,
+    /// Keyed by public key. See [`WalletSnapshot`].
+    #[serde(default)]
+    pub snapshots: std::collections::HashMap<String, WalletSnapshot>,
+}
+
+impl VaultData {
+    /// Record freshly read balances. A failed read (`None`) keeps the previous
+    /// figure rather than erasing it.
+    pub fn record_balances(&mut self, readings: &[(String, Option<u64>)], now: i64) {
+        for (pubkey, lamports) in readings {
+            if let Some(l) = lamports {
+                let s = self.snapshots.entry(pubkey.clone()).or_default();
+                s.lamports = Some(*l);
+                s.balance_at = Some(now);
+            }
+        }
+    }
+
+    /// Record token-scan results. A wallet whose scan failed keeps its old figures.
+    pub fn record_tokens(&mut self, readings: &[(String, TokenFigures)], now: i64) {
+        for (pubkey, f) in readings {
+            let s = self.snapshots.entry(pubkey.clone()).or_default();
+            s.token_accounts = Some(f.accounts);
+            s.tokens_with_balance = Some(f.with_balance);
+            s.tokens_empty = Some(f.empty);
+            s.reclaimable_lamports = Some(f.reclaimable_lamports);
+            s.tokens_at = Some(now);
+        }
+    }
+
+    /// Drop snapshots of wallets that are no longer in the vault.
+    pub fn forget_snapshot(&mut self, pubkey: &str) {
+        self.snapshots.remove(pubkey);
+    }
+}
+
+/// The token figures worth remembering.
+pub struct TokenFigures {
+    pub accounts: u32,
+    pub with_balance: u32,
+    pub empty: u32,
+    pub reclaimable_lamports: u64,
 }
 
 /// The derived symmetric key, held only while the vault is unlocked.
@@ -214,7 +283,35 @@ pub fn unlock(data_dir: &Path, password: &str) -> Result<(VaultData, VaultKey, [
     if !path.is_file() {
         return Err(AppError::NoVault);
     }
+    unlock_file(&path, password)
+}
+
+/// Decrypt with a key that was already derived, skipping the password. This is
+/// the Touch ID path: the key comes out of the keychain after a biometric check.
+/// A key that no longer matches (the password was changed) fails the tag check
+/// exactly like a wrong password.
+pub fn unlock_with_key(
+    data_dir: &Path,
+    key: &VaultKey,
+) -> Result<(VaultData, VaultKey, [u8; SALT_LEN])> {
+    let path = vault_path(data_dir);
+    if !path.is_file() {
+        return Err(AppError::NoVault);
+    }
     let bytes = fs::read(&path)?;
+    let (params, nonce, body_at) = read_header(&bytes)?;
+    let mut plaintext = cipher(key)?
+        .decrypt(&XNonce::from(nonce), &bytes[body_at..])
+        .map_err(|_| AppError::BadPassword)?;
+    let data: VaultData = serde_json::from_slice(&plaintext).map_err(|_| AppError::CorruptVault)?;
+    plaintext.zeroize();
+    Ok((data, Zeroizing::new(**key), params.salt))
+}
+
+/// Same as `unlock`, but against an arbitrary file rather than the app's own
+/// `vault.bin`. Used to validate a backup before restoring it.
+fn unlock_file(path: &Path, password: &str) -> Result<(VaultData, VaultKey, [u8; SALT_LEN])> {
+    let bytes = fs::read(path)?;
     let (params, nonce, body_at) = read_header(&bytes)?;
     let key = derive_key(password, &params)?;
     let mut plaintext = cipher(&key)?
@@ -223,6 +320,26 @@ pub fn unlock(data_dir: &Path, password: &str) -> Result<(VaultData, VaultKey, [
     let data: VaultData = serde_json::from_slice(&plaintext).map_err(|_| AppError::CorruptVault)?;
     plaintext.zeroize();
     Ok((data, key, params.salt))
+}
+
+/// Restore a vault from a backup file exported by `export`. Refuses to
+/// clobber an existing vault, and validates the password before writing
+/// anything, so a bad attempt never touches `vault.bin`.
+pub fn restore(
+    data_dir: &Path,
+    source: &Path,
+    password: &str,
+) -> Result<(VaultData, VaultKey, [u8; SALT_LEN])> {
+    if exists(data_dir) {
+        return Err(AppError::VaultExists);
+    }
+    if !source.is_file() {
+        return Err(AppError::NoVault);
+    }
+    let result = unlock_file(source, password)?;
+    let bytes = fs::read(source)?;
+    write_atomic(&vault_path(data_dir), &bytes)?;
+    Ok(result)
 }
 
 /// Re-encrypt the vault under a new password. A fresh salt is generated so the
@@ -363,6 +480,141 @@ mod tests {
 
     fn contains(haystack: &[u8], needle: &[u8]) -> bool {
         haystack.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[test]
+    fn restore_round_trips_and_validates_password() {
+        let src_dir = tmp_dir("restore-src");
+        let dst_dir = tmp_dir("restore-dst");
+        let (mut data, key, salt) = create(&src_dir, "correct horse").unwrap();
+        data.wallets.push(wallet("one", 7));
+        save(&src_dir, &data, &key, salt).unwrap();
+        let backup = vault_path(&src_dir);
+
+        match restore(&dst_dir, &backup, "wrong password") {
+            Err(AppError::BadPassword) => {}
+            other => panic!("expected BadPassword, got {other:?}", other = other.err()),
+        }
+        assert!(!exists(&dst_dir));
+
+        let (restored, _, _) = restore(&dst_dir, &backup, "correct horse").unwrap();
+        assert_eq!(restored.wallets.len(), 1);
+        assert_eq!(restored.wallets[0].secret, [7u8; 64]);
+        assert!(exists(&dst_dir));
+
+        let (reopened, _, _) = unlock(&dst_dir, "correct horse").unwrap();
+        assert_eq!(reopened.wallets[0].label, "one");
+
+        fs::remove_dir_all(&src_dir).unwrap();
+        fs::remove_dir_all(&dst_dir).unwrap();
+    }
+
+    #[test]
+    fn restore_refuses_to_clobber_existing_vault() {
+        let src_dir = tmp_dir("restore-clobber-src");
+        let dst_dir = tmp_dir("restore-clobber-dst");
+        create(&src_dir, "password1").unwrap();
+        let backup = vault_path(&src_dir);
+        create(&dst_dir, "password2").unwrap();
+
+        assert!(matches!(
+            restore(&dst_dir, &backup, "password1"),
+            Err(AppError::VaultExists)
+        ));
+        // the existing vault must still be intact
+        assert!(unlock(&dst_dir, "password2").is_ok());
+
+        fs::remove_dir_all(&src_dir).unwrap();
+        fs::remove_dir_all(&dst_dir).unwrap();
+    }
+
+    #[test]
+    fn restore_rejects_non_vault_file() {
+        let dst_dir = tmp_dir("restore-corrupt");
+        let bogus = dst_dir.join("not-a-vault.bin");
+        fs::write(&bogus, b"not a vault").unwrap();
+
+        assert!(matches!(
+            restore(&dst_dir, &bogus, "password123"),
+            Err(AppError::CorruptVault)
+        ));
+        assert!(!exists(&dst_dir));
+
+        fs::remove_dir_all(&dst_dir).unwrap();
+    }
+
+    #[test]
+    fn unlock_with_key_matches_password_unlock_and_rejects_stale_keys() {
+        let dir = tmp_dir("unlock-key");
+        let (mut data, key, salt) = create(&dir, "first password").unwrap();
+        data.wallets.push(wallet("one", 3));
+        save(&dir, &data, &key, salt).unwrap();
+
+        let (opened, k, s) = unlock_with_key(&dir, &key).unwrap();
+        assert_eq!(opened.wallets[0].secret, [3u8; 64]);
+        assert_eq!(*k, *key);
+        assert_eq!(s, salt);
+
+        // Changing the password re-keys the vault, so the old key must stop working.
+        change_password(&dir, "first password", "second password").unwrap();
+        assert!(matches!(
+            unlock_with_key(&dir, &key),
+            Err(AppError::BadPassword)
+        ));
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn snapshots_round_trip_inside_the_encrypted_vault_and_old_vaults_still_open() {
+        let dir = tmp_dir("snapshots");
+        let (mut data, key, salt) = create(&dir, "snapshot password").unwrap();
+        data.wallets.push(wallet("one", 5));
+        let pk = data.wallets[0].pubkey.clone();
+        data.record_balances(&[(pk.clone(), Some(1_234_567_891))], 1000);
+        data.record_tokens(
+            &[(
+                pk.clone(),
+                TokenFigures {
+                    accounts: 7,
+                    with_balance: 2,
+                    empty: 5,
+                    reclaimable_lamports: 10_196_400,
+                },
+            )],
+            2000,
+        );
+        save(&dir, &data, &key, salt).unwrap();
+
+        // Never in cleartext: neither the balance nor the key it is filed under.
+        let raw = fs::read(vault_path(&dir)).unwrap();
+        assert!(!contains(&raw, b"1234567891"));
+        assert!(!contains(&raw, pk.as_bytes()));
+
+        let (reopened, _, _) = unlock(&dir, "snapshot password").unwrap();
+        let s = &reopened.snapshots[&pk];
+        assert_eq!(s.lamports, Some(1_234_567_891));
+        assert_eq!(s.balance_at, Some(1000));
+        assert_eq!(s.token_accounts, Some(7));
+        assert_eq!(s.tokens_empty, Some(5));
+        assert_eq!(s.tokens_at, Some(2000));
+
+        // A vault written before snapshots existed has no such field.
+        let old: VaultData = serde_json::from_str(r#"{"wallets":[]}"#).unwrap();
+        assert!(old.snapshots.is_empty());
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_balance_read_keeps_the_previous_figure() {
+        let mut data = VaultData::default();
+        data.record_balances(&[("a".into(), Some(5))], 1);
+        data.record_balances(&[("a".into(), None)], 2);
+        assert_eq!(data.snapshots["a"].lamports, Some(5));
+        assert_eq!(data.snapshots["a"].balance_at, Some(1));
+        data.forget_snapshot("a");
+        assert!(data.snapshots.is_empty());
     }
 
     #[test]

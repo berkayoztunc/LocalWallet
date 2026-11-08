@@ -49,7 +49,7 @@ export function ImportDialog({
 
   return (
     <Modal
-      title="Import wallets"
+      title="Import Keys"
       onClose={onClose}
       busy={busy}
       footer={

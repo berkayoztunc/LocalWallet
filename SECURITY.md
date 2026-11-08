@@ -46,6 +46,14 @@ Concretely: your ordinary SOL survives a malicious npm dependency running for a 
 
 The pool contract and the relayer are third-party code that LocalWallet has not audited. Bugs in them are out of scope here — report those to Privacy Cash — but anything in *this* app that mishandles keys, signs more than it should, grants Privacy Cash access without the native confirmation, or sends a transaction the UI did not describe is very much in scope.
 
+## Exporting a private key, and Touch ID
+
+Two features deliberately widen what this app does with secrets, so they are called out here.
+
+**Export private key** is the one command that returns key material to the interface. It requires the open vault, the master password typed again (checked by a full decrypt, with a backend back-off after wrong guesses) and a native confirmation dialog the app window cannot dismiss for itself. The key is displayed blurred, closes after a minute and is not logged or stored. A report showing the key can be obtained *without* all three is in scope.
+
+**Touch ID unlock** (macOS) stores the vault's derived key in the login keychain and returns it after a LocalAuthentication check made by the app. That check is app-enforced, not Secure Enclave-enforced, because the app is ad-hoc signed and so cannot use the data-protection keychain. I do not claim more than that. Reports on how to read the keychain item without the check are welcome, with that limit in mind.
+
 ## What the menu bar writes to disk
 
 Enabling the menu bar writes your **last known total, in SOL and USD, to `menubar.json` in cleartext**. This exists so a number can be shown while the vault is locked, which is impossible otherwise — the wallet addresses needed to compute one are encrypted.

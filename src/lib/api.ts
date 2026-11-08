@@ -32,15 +32,39 @@ export interface VaultStatus {
   wallet_count: number;
 }
 
+/** Last-known figures kept in the encrypted vault, shown before any refresh. */
+export interface WalletSnapshot {
+  lamports: number | null;
+  balance_at: number | null;
+  token_accounts: number | null;
+  tokens_with_balance: number | null;
+  tokens_empty: number | null;
+  reclaimable_lamports: number | null;
+  tokens_at: number | null;
+}
+
 export interface Wallet {
   label: string;
   pubkey: string;
   added_at: number;
+  snapshot?: WalletSnapshot | null;
 }
 
 export interface Balance {
   pubkey: string;
   lamports: number | null;
+}
+
+export interface ExportedSecret {
+  /** 64-byte keypair as base58: the "secret key" wallets import. */
+  base58: string;
+  /** The same bytes as a JSON array: the Solana CLI's id.json. */
+  json: string;
+}
+
+export interface BiometricStatus {
+  available: boolean;
+  enabled: boolean;
 }
 
 export interface Settings {
@@ -146,6 +170,9 @@ export interface WalletTokens {
   locked_accounts: number;
   reclaimable_lamports: number;
   error: string | null;
+  /** Set (unix seconds) when these counts come from the saved snapshot rather
+   *  than a live scan. Such an entry has no account list to expand. */
+  cached?: number;
 }
 
 export interface TokenScan {
@@ -221,6 +248,73 @@ export interface FundedCleanupProgress {
   error: string | null;
   done: number;
   total: number;
+}
+
+export interface PumpFee {
+  owner_pubkey: string;
+  owner_label: string;
+  vault: string;
+  sol_lamports: number;
+  amm_vault: string;
+  amm_lamports: number;
+  /** Unix seconds of the scan that produced this row. */
+  scanned_at: number;
+}
+
+export interface StreamPosition {
+  owner_pubkey: string;
+  owner_label: string;
+  address: string;
+  contract_type: "VESTING" | "TOKEN_LOCK" | "DYNAMIC_VESTING" | "DYNAMIC_LOCK" | string;
+  name: string;
+  sender: string;
+  mint: string;
+  decimals: number | null;
+  /** Base units as decimal strings: token amounts can exceed 2^53. */
+  total: string;
+  claimed: string;
+  locked: string;
+  withdrawable: string | null;
+  start: string | null;
+  end: string | null;
+  paused: boolean;
+  scanned_at: number;
+}
+
+/** Saved rows plus this run's problems, so a partial scan is never read as "nothing". */
+export interface PumpView {
+  rows: PumpFee[];
+  total_lamports: number;
+  last_scan_at: number | null;
+  /** Last check time per wallet, including wallets with nothing to show. */
+  checked: Record<string, number>;
+  /** Wallets left out of this run because they were checked recently. */
+  skipped_fresh: number;
+  errors: string[];
+}
+
+export interface StreamsView {
+  rows: StreamPosition[];
+  last_scan_at: number | null;
+  checked: Record<string, number>;
+  skipped_fresh: number;
+  errors: string[];
+}
+
+export interface PositionsCache {
+  pump: PumpView;
+  streams: StreamsView;
+}
+
+/** Format a base-unit decimal string without going through a float. */
+export function formatUnits(raw: string, decimals: number | null): string {
+  if (decimals === null) return `${raw} (raw)`;
+  const neg = raw.startsWith("-");
+  const digits = (neg ? raw.slice(1) : raw).padStart(decimals + 1, "0");
+  const whole = digits.slice(0, digits.length - decimals);
+  const frac = digits.slice(digits.length - decimals).replace(/0+$/, "");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${neg ? "-" : ""}${grouped}${frac ? "." + frac : ""}`;
 }
 
 export type StakeStatus = "activating" | "active" | "deactivating" | "inactive";
@@ -319,6 +413,15 @@ export const api = {
   vaultStatus: () => invoke<VaultStatus>("vault_status"),
   vaultCreate: (password: string) => invoke<VaultStatus>("vault_create", { password }),
   vaultUnlock: (password: string) => invoke<VaultStatus>("vault_unlock", { password }),
+  vaultUnlockBiometric: () => invoke<VaultStatus>("vault_unlock_biometric"),
+  biometricStatus: () => invoke<BiometricStatus>("biometric_status"),
+  biometricEnable: (password: string) => invoke<BiometricStatus>("biometric_enable", { password }),
+  biometricDisable: () => invoke<BiometricStatus>("biometric_disable"),
+  /** Reveals a private key. Needs the master password and a native confirmation. */
+  walletExportSecret: (pubkey: string, password: string) =>
+    invoke<ExportedSecret>("wallet_export_secret", { pubkey, password }),
+  vaultRestore: (source: string, password: string) =>
+    invoke<VaultStatus>("vault_restore", { source, password }),
   vaultLock: () => invoke<void>("vault_lock"),
   vaultChangePassword: (oldPassword: string, newPassword: string) =>
     invoke<void>("vault_change_password", { oldPassword, newPassword }),
@@ -356,6 +459,20 @@ export const api = {
   fundedCleanupRun: (funder: string, pubkeys?: string[]) =>
     invoke<FundedCleanupProgress[]>("funded_cleanup_run", { funder, pubkeys: pubkeys ?? null }),
 
+  positionsLoad: () => invoke<PositionsCache>("positions_load"),
+  /** `maxAgeSecs` skips wallets checked more recently than that; omit to force. */
+  positionsScanPump: (pubkeys?: string[], maxAgeSecs?: number) =>
+    invoke<PumpView>("positions_scan_pump", {
+      pubkeys: pubkeys ?? null,
+      maxAgeSecs: maxAgeSecs ?? null,
+    }),
+  positionsScanStreams: (pubkeys?: string[], maxAgeSecs?: number) =>
+    invoke<StreamsView>("positions_scan_streams", {
+      pubkeys: pubkeys ?? null,
+      maxAgeSecs: maxAgeSecs ?? null,
+    }),
+  positionsForget: (which: "pump" | "streams" | "all", pubkeys: string[]) =>
+    invoke<PositionsCache>("positions_forget", { which, pubkeys }),
   stakeScan: (pubkeys?: string[]) => invoke<StakeScan>("stake_scan", { pubkeys: pubkeys ?? null }),
   /** `accounts` is a list of [ownerPubkey, stakeAccount] pairs. */
   stakeDeactivate: (accounts: [string, string][]) =>

@@ -21,16 +21,14 @@ import {
   type WalletTokens,
 } from "../lib/api";
 import { addressUrl, clusterFromRpc, explorerInfo } from "../lib/explorer";
+import { ago } from "../lib/time";
 import {
   Banner,
   Button,
-  ButtonGroup,
   EmptyState,
   Input,
   Kbd,
   Pill,
-  RowActions,
-  IconButton,
   Skeleton,
   Spinner,
   StatusBar,
@@ -39,11 +37,11 @@ import {
   Table,
   Td,
   Th,
-  Toolbar,
+  ToolbarDivider,
+  ToolbarItem,
   Tr,
   cx,
 } from "../components/ui";
-import { Logo } from "../components/Logo";
 import {
   IconCheck,
   IconClose,
@@ -52,6 +50,14 @@ import {
   IconEye,
   IconEyeOff,
   IconStake,
+  IconKey,
+  IconImport,
+  IconRefresh,
+  IconScan,
+  IconCollect,
+  IconGear,
+  IconCoin,
+  IconSearch,
   IconFund,
   IconLock,
   IconSend,
@@ -65,6 +71,9 @@ import { SweepDialog } from "../components/SweepDialog";
 import { SendDialog } from "../components/SendDialog";
 import { FundedCleanupDialog } from "../components/FundedCleanupDialog";
 import { StakeDialog } from "../components/StakeDialog";
+import { PositionsDialog } from "../components/PositionsDialog";
+import { ToolsDialog, type ToolItem } from "../components/ToolsDialog";
+import { ExportKeyDialog } from "../components/ExportKeyDialog";
 import { forgetPrivacyStorage } from "../lib/privacySessions";
 
 /**
@@ -83,6 +92,9 @@ type Dialog =
   | "sweep"
   | "send"
   | "stake"
+  | "positions"
+  | "tools"
+  | "export"
   | "privacy"
   | null;
 
@@ -92,7 +104,7 @@ type Dialog =
  * fee payer on `balance - fee` before instructions run, so a wallet at or below
  * this cannot pay for its own close even though the close would return rent.
  *
- * Below this the row offers "Fund & close" instead of "Close". Only a display
+ * Below this the row offers "Fund Fee & Close Accounts" instead of "Close Empty Token Accounts". Only a display
  * heuristic — the backend prices each wallet exactly.
  */
 const FEE_FLOOR_LAMPORTS = 900_000;
@@ -125,6 +137,8 @@ export function Dashboard({
   const [copied, setCopied] = useState<string | null>(null);
   const [sendTarget, setSendTarget] = useState<Wallet | null>(null);
   const [stakeTarget, setStakeTarget] = useState<Wallet | null>(null);
+  const [toolsTarget, setToolsTarget] = useState<Wallet | null>(null);
+  const [exportTarget, setExportTarget] = useState<Wallet | null>(null);
   const [privacyTarget, setPrivacyTarget] = useState<Wallet | null>(null);
   // Shielded balances are not fetched with the others: finding which pool notes
   // belong to a wallet means trying to decrypt every note in the pool, so each
@@ -144,10 +158,53 @@ export function Dashboard({
   const searchRef = useRef<HTMLInputElement>(null);
   // Guards the focus listener below: alt-tabbing must not hammer the RPC.
   const lastRefreshAt = useRef(0);
+  // When the balances on screen were last read: the saved time until a live
+  // refresh replaces it.
+  const [savedBalancesAt, setSavedBalancesAt] = useState<number | null>(null);
 
   const loadWallets = useCallback(async () => {
     try {
-      setWallets(await api.walletsList());
+      const list = await api.walletsList();
+      setWallets(list);
+      // Show the last-known balances and token counts at once; live figures
+      // (already in state, or arriving from a refresh) always win over these.
+      setBalances((prev) => {
+        const next = { ...prev };
+        for (const w of list) {
+          if (next[w.pubkey] === undefined && w.snapshot?.lamports != null) {
+            next[w.pubkey] = w.snapshot.lamports;
+          }
+        }
+        return next;
+      });
+      setTokens((prev) => {
+        const next = { ...prev };
+        for (const w of list) {
+          const sn = w.snapshot;
+          if (!next[w.pubkey] && sn?.token_accounts != null && sn.tokens_at != null) {
+            next[w.pubkey] = {
+              pubkey: w.pubkey,
+              label: w.label,
+              accounts: [],
+              total_accounts: sn.token_accounts,
+              empty_accounts: sn.tokens_empty ?? 0,
+              with_balance: sn.tokens_with_balance ?? 0,
+              frozen_accounts: 0,
+              locked_accounts: 0,
+              reclaimable_lamports: sn.reclaimable_lamports ?? 0,
+              error: null,
+              cached: sn.tokens_at,
+            };
+          }
+        }
+        return next;
+      });
+      setSavedBalancesAt(
+        list.reduce<number | null>((m, w) => {
+          const t = w.snapshot?.balance_at ?? null;
+          return t !== null && (m === null || t > m) ? t : m;
+        }, null),
+      );
     } catch (e) {
       setError(asAppError(e).message);
     }
@@ -160,6 +217,7 @@ export function Dashboard({
       const list = await api.balancesRefresh();
       setBalances(Object.fromEntries(list.map((b) => [b.pubkey, b.lamports])));
       lastRefreshAt.current = Date.now();
+      setSavedBalancesAt(Math.floor(Date.now() / 1000));
       // The menu bar shows the same total, so update it from the same data
       // rather than making the backend re-read every balance.
       const total = list.reduce((sum, b) => sum + (b.lamports ?? 0), 0);
@@ -311,6 +369,8 @@ export function Dashboard({
       accounts: scanned.reduce((n, w) => n + w.total_accounts, 0),
       withBalance: scanned.reduce((n, w) => n + w.with_balance, 0),
       reclaimable: scanned.reduce((n, w) => n + w.reclaimable_lamports, 0),
+      // Every figure is from the saved snapshot; nothing scanned live yet.
+      savedOnly: scanned.every((w) => w.cached),
     };
   }, [tokens]);
 
@@ -414,28 +474,267 @@ export function Dashboard({
     }
   }
 
+  /** Why the close tool is inactive: unscanned, no accounts, or accounts nothing
+   *  can be done with (held, frozen, or owned by another close authority). */
+  function closeBlockedReason(t: WalletTokens | undefined): string {
+    if (!t) return "Scan this wallet first.";
+    if (t.total_accounts === 0) return "This wallet has no token accounts.";
+    const reasons = [
+      t.with_balance && `${t.with_balance} hold a balance`,
+      t.frozen_accounts && `${t.frozen_accounts} frozen`,
+      t.locked_accounts && `${t.locked_accounts} locked by another close authority`,
+    ].filter(Boolean);
+    return reasons.length > 0
+      ? `Nothing to close — ${reasons.join(", ")}.`
+      : "No empty token accounts to close.";
+  }
+
+  /** Every per-wallet action, by name, for the Tools sheet. Each one closes the
+   *  sheet by opening its own dialog (or by resetting `dialog` first). */
+  function toolItems(w: Wallet): ToolItem[] {
+    const t = tokens[w.pubkey];
+    const isFunder = settings.funder_pubkey === w.pubkey;
+    const hasRent = (t?.reclaimable_lamports ?? 0) > 0;
+    const canPay = (balances[w.pubkey] ?? 0) >= FEE_FLOOR_LAMPORTS;
+    const done = () => setDialog(null);
+
+    const items: ToolItem[] = [
+      {
+        id: "send",
+        group: "Move funds",
+        label: "Send SOL to an Address",
+        description: "Transfer SOL from this wallet, with a quote before you sign.",
+        icon: <IconSend />,
+        tone: "accent",
+        onSelect: () => {
+          setSendTarget(w);
+          setDialog("send");
+        },
+      },
+      {
+        id: "privacy",
+        group: "Move funds",
+        label: "Send Privately (Privacy Cash)",
+        description: "Pay an address through the Privacy Cash pool.",
+        icon: <IconLock />,
+        tone: "purple",
+        onSelect: () => {
+          setPrivacyTarget(w);
+          setDialog("privacy");
+        },
+      },
+      {
+        id: "stake",
+        group: "Move funds",
+        label: "Stake to a Validator",
+        description: "Delegate SOL from this wallet to a validator.",
+        icon: <IconStake />,
+        tone: "green",
+        onSelect: () => {
+          setStakeTarget(w);
+          setDialog("stake");
+        },
+      },
+    ];
+
+    // A wallet that can pay its own fee closes directly; one that cannot has to
+    // be funded first. Only the applicable one is enabled.
+    if (hasRent && canPay) {
+      items.push({
+        id: "close",
+        group: "Token accounts",
+        label: "Close Empty Token Accounts",
+        description: `Close ${t.empty_accounts} empty account${t.empty_accounts === 1 ? "" : "s"} and reclaim ${toSol(t.reclaimable_lamports)} SOL.`,
+        icon: <IconClose />,
+        tone: "orange",
+        onSelect: () => {
+          setCleanupScope({ pubkeys: [w.pubkey], label: w.label });
+          setDialog("cleanup");
+        },
+      });
+    } else if (hasRent) {
+      items.push({
+        id: "fund-close",
+        group: "Token accounts",
+        label: "Fund Fee & Close Accounts",
+        description: isFunder
+          ? "The funding wallet cannot fund itself."
+          : `Too empty to pay a fee. Lend it one, close its accounts and reclaim ${toSol(t.reclaimable_lamports)} SOL.`,
+        icon: <IconFund />,
+        disabled: isFunder,
+        tone: "yellow",
+        onSelect: () => {
+          setFundScope({ pubkeys: [w.pubkey], label: w.label });
+          setDialog("funded-cleanup");
+        },
+      });
+    } else {
+      items.push({
+        id: "close",
+        group: "Token accounts",
+        label: "Close Empty Token Accounts",
+        description: closeBlockedReason(t),
+        icon: <IconClose />,
+        disabled: true,
+        onSelect: done,
+      });
+    }
+
+    items.push(
+      {
+        id: "funder",
+        group: "Wallet",
+        label: isFunder ? "Remove as Funding Wallet" : "Set as Funding Wallet",
+        description: isFunder
+          ? "This wallet funds fees for the others. Click to unset."
+          : "Use this wallet to fund fees for the others.",
+        icon: <IconStar filled={isFunder} />,
+        tone: "yellow",
+        onSelect: () => {
+          done();
+          void setFunder(isFunder ? null : w.pubkey);
+        },
+      },
+      {
+        id: "copy",
+        group: "Wallet",
+        label: "Copy Address",
+        description: w.pubkey,
+        icon: <IconCopy />,
+        tone: "plain",
+        onSelect: () => {
+          done();
+          void copyAddress(w.pubkey);
+        },
+      },
+      {
+        id: "explorer",
+        group: "Wallet",
+        label: `View on ${explorerInfo(settings.explorer).name}`,
+        description: "Open this address in your block explorer.",
+        icon: <IconExternal />,
+        tone: "teal",
+        onSelect: () => {
+          done();
+          void openUrl(addressUrl(settings, w.pubkey));
+        },
+      },
+      {
+        id: "export",
+        group: "Danger zone",
+        label: "Export Private Key…",
+        description: "Show this wallet's secret key. Asks for your password and a confirmation.",
+        icon: <IconKey />,
+        tone: "orange",
+        onSelect: () => {
+          setExportTarget(w);
+          setDialog("export");
+        },
+      },
+      {
+        id: "remove",
+        group: "Danger zone",
+        label: "Remove Wallet from Vault",
+        description: "Delete this wallet's key from the app. Back it up first.",
+        icon: <IconTrash />,
+        tone: "danger",
+        onSelect: () => {
+          done();
+          void remove(w);
+        },
+      },
+    );
+    return items;
+  }
+
   const noWallets = wallets.length === 0;
 
   return (
     <div className="flex h-full flex-col">
-      {/* Toolbar */}
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-ink-600 bg-ink-850 px-2.5 py-1.5">
-        <div className="flex items-center gap-2">
-          <Logo size={18} />
-          <span className="text-xs font-semibold tracking-tight">LocalWallet</span>
-        </div>
+      {/* Toolbar: icon over label, grouped like a macOS toolbar. */}
+      <header className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-white/10 bg-ink-850 px-2.5 pb-1.5">
+        <ToolbarItem
+          icon={<IconImport size={18} />}
+          label="Import Keys"
+          title="Import private keys into the vault"
+          onClick={() => setDialog("import")}
+        />
+        <ToolbarItem
+          icon={<IconRefresh size={18} />}
+          label="Refresh Balances"
+          title="Read every wallet's SOL balance again"
+          busy={refreshing}
+          onClick={refreshBalances}
+          disabled={refreshing || noWallets}
+        />
+        <ToolbarItem
+          icon={<IconScan size={18} />}
+          label="Scan Tokens"
+          title="Scan every wallet for token accounts"
+          busy={scanning}
+          onClick={scanTokens}
+          disabled={scanning || noWallets}
+        />
 
-        <div className="relative ml-1 min-w-44 flex-1 sm:max-w-64">
+        <ToolbarDivider />
+
+        <ToolbarItem
+          icon={<IconClose size={18} />}
+          label="Close Token Accounts"
+          title="Close empty token accounts and reclaim their rent"
+          onClick={() => {
+            setCleanupScope({});
+            setDialog("cleanup");
+          }}
+          disabled={noWallets}
+        />
+        <ToolbarItem
+          icon={<IconFund size={18} />}
+          label="Fund & Close Accounts"
+          title="Lend each empty wallet a fee, close its token accounts, then send the proceeds to the sweep destination"
+          onClick={() => {
+            setFundScope({});
+            setDialog("funded-cleanup");
+          }}
+          disabled={noWallets}
+        />
+
+        <ToolbarDivider />
+
+        <ToolbarItem
+          tone="accent"
+          icon={<IconCollect size={18} />}
+          label="Collect All SOL"
+          title="Collect SOL from every wallet into one destination"
+          onClick={() => setDialog("sweep")}
+          disabled={noWallets}
+        />
+        <ToolbarItem
+          icon={<IconStake size={18} />}
+          label="Staking"
+          title="Your stake accounts, and the validator list"
+          onClick={onOpenStake}
+        />
+        <ToolbarItem
+          icon={<IconCoin size={18} />}
+          label="Creator Fees & Locks"
+          title="Pump.fun creator fees and Streamflow locks"
+          onClick={() => setDialog("positions")}
+          disabled={noWallets}
+        />
+
+        <div className="relative mx-2 ml-auto min-w-28 flex-1 self-center sm:max-w-60">
+          <span className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-mist-500">
+            <IconSearch size={13} />
+          </span>
           <Input
             ref={searchRef}
-            className="pr-14 pl-6"
-            placeholder="Search label or address"
+            className="pr-12 pl-7"
+            placeholder="Search"
+            aria-label="Search label or address"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <span className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-mist-500">
-            ⌕
-          </span>
           {query ? (
             <button
               className="absolute top-1/2 right-1.5 -translate-y-1/2 px-1 text-mist-500 hover:text-mist-50"
@@ -451,55 +750,13 @@ export function Dashboard({
           )}
         </div>
 
-        <Toolbar className="ml-auto">
-          {/* Data actions */}
-          <ButtonGroup>
-            <Button onClick={() => setDialog("import")}>Import</Button>
-            <Button onClick={refreshBalances} disabled={refreshing || noWallets}>
-              {refreshing && <Spinner />} Balances
-            </Button>
-            <Button onClick={scanTokens} disabled={scanning || noWallets}>
-              {scanning && <Spinner />} Scan
-            </Button>
-          </ButtonGroup>
-
-          {/* Actions that move funds */}
-          <ButtonGroup>
-            <Button
-              onClick={() => {
-                setCleanupScope({});
-                setDialog("cleanup");
-              }}
-              disabled={noWallets}
-            >
-              Close
-            </Button>
-            <Button
-              onClick={() => {
-                setFundScope({});
-                setDialog("funded-cleanup");
-              }}
-              disabled={noWallets}
-              title="Lend each empty wallet a fee, close its token accounts, then send the proceeds to the sweep destination"
-            >
-              Fund &amp; close
-            </Button>
-          </ButtonGroup>
-
-          <Button variant="primary" onClick={() => setDialog("sweep")} disabled={noWallets}>
-            Collect all SOL
-          </Button>
-
-          <Button onClick={onOpenStake}>Stake</Button>
-
-          <span className="mx-0.5 h-4 w-px bg-ink-600" />
-          <Button variant="ghost" onClick={onOpenSettings}>
-            Settings
-          </Button>
-          <Button variant="ghost" onClick={onLock}>
-            Lock
-          </Button>
-        </Toolbar>
+        <ToolbarDivider />
+        <ToolbarItem
+          icon={<IconGear size={18} />}
+          label="Settings"
+          onClick={onOpenSettings}
+        />
+        <ToolbarItem icon={<IconLock size={18} />} label="Lock Vault" title="Lock the vault" onClick={onLock} />
       </header>
 
       {/* Content */}
@@ -531,7 +788,7 @@ export function Dashboard({
             <thead>
               <tr>
                 <Th className="w-[20%]">Label</Th>
-                <Th className="border-l border-ink-600">
+                <Th className="">
                   <span className="inline-flex items-center gap-1.5">
                     Address
                     <button
@@ -544,18 +801,18 @@ export function Dashboard({
                     </button>
                   </span>
                 </Th>
-                <Th numeric className="w-32 border-l border-ink-600">
+                <Th numeric className="w-32">
                   SOL
                 </Th>
                 <Th
                   numeric
-                  className="w-28 border-l border-ink-600"
+                  className="w-28"
                   title="Shielded balance held in Privacy Cash. Scanned per wallet on request — finding a wallet's notes means trying every note in the pool against its key, so it cannot be read in bulk."
                 >
                   Pool
                 </Th>
-                <Th className="w-28 border-l border-ink-600">Tokens</Th>
-                <Th className="w-44 border-l border-ink-600" />
+                <Th className="w-28">Tokens</Th>
+                <Th className="w-24" />
               </tr>
             </thead>
             <tbody>
@@ -563,26 +820,6 @@ export function Dashboard({
                 const walletTokens = tokens[w.pubkey];
                 const isOpen = expanded === w.pubkey;
                 const isFunder = settings.funder_pubkey === w.pubkey;
-                // A wallet holding rent it cannot pay to release is exactly
-                // what the funded flow exists for.
-                const hasRent = (walletTokens?.reclaimable_lamports ?? 0) > 0;
-                const canPay = (balances[w.pubkey] ?? 0) >= FEE_FLOOR_LAMPORTS;
-                // Why the close button is inactive. An empty slot here reads as
-                // a broken button, so every non-closable case says which one it
-                // is — unscanned, no accounts, or accounts nothing can be done
-                // with (held, frozen, or owned by another close authority).
-                const closeBlocked = !walletTokens
-                  ? "Scan this wallet first"
-                  : walletTokens.total_accounts === 0
-                    ? "No token accounts"
-                    : `Nothing to close — ${[
-                        walletTokens.with_balance && `${walletTokens.with_balance} hold a balance`,
-                        walletTokens.frozen_accounts && `${walletTokens.frozen_accounts} frozen`,
-                        walletTokens.locked_accounts &&
-                          `${walletTokens.locked_accounts} locked by another close authority`,
-                      ]
-                        .filter(Boolean)
-                        .join(", ")}`;
                 return (
                   <Fragment key={w.pubkey}>
                     <Tr>
@@ -616,7 +853,7 @@ export function Dashboard({
                         </div>
                       </Td>
 
-                      <Td className="border-l border-ink-600/60">
+                      <Td className="">
                         {/* Masking is display only: the tooltip and the copy
                             both still carry the real address, so a hidden row
                             stays as usable as a shown one. */}
@@ -641,7 +878,7 @@ export function Dashboard({
                         </button>
                       </Td>
 
-                      <Td numeric className="border-l border-ink-600/60 font-mono">
+                      <Td numeric className=" font-mono">
                         {balances[w.pubkey] === undefined && refreshing ? (
                           <Skeleton className="ml-auto h-3 w-14" />
                         ) : (
@@ -652,7 +889,7 @@ export function Dashboard({
                       {/* Same idea as the Tokens cell: unscanned it offers to
                           scan this one wallet, scanned it shows the figure. A
                           shielded balance cannot be read in bulk. */}
-                      <Td numeric className="border-l border-ink-600/60 font-mono">
+                      <Td numeric className=" font-mono">
                         {poolScanning === w.pubkey ? (
                           <span
                             className="inline-flex items-center gap-1.5 text-[11px] text-mist-500"
@@ -691,7 +928,7 @@ export function Dashboard({
 
                       {/* The cell is the control: unscanned it offers to scan
                           just this wallet, scanned it expands the detail. */}
-                      <Td className="border-l border-ink-600/60">
+                      <Td className="">
                         {(scanning && !walletTokens) || scanningWallet === w.pubkey ? (
                           <span className="inline-flex items-center gap-1.5 text-[11px] text-mist-500">
                             <Spinner /> scanning
@@ -701,19 +938,31 @@ export function Dashboard({
                             className={cx(
                               "-mx-1 px-1 text-[11px] outline-none transition-colors",
                               "hover:bg-ink-700 focus-visible:ring-1 focus-visible:ring-brand-500",
-                              walletTokens.total_accounts > 0 ? "text-cyan-brand" : "text-mist-500",
+                              walletTokens.cached
+                                ? "text-mist-500"
+                                : walletTokens.total_accounts > 0
+                                  ? "text-cyan-brand"
+                                  : "text-mist-500",
                             )}
-                            aria-expanded={isOpen}
+                            aria-expanded={walletTokens.cached ? undefined : isOpen}
                             title={
-                              walletTokens.total_accounts > 0
-                                ? "Show token accounts"
-                                : "No token accounts"
+                              walletTokens.cached
+                                ? `Saved from ${ago(walletTokens.cached)}. Click to scan again.`
+                                : walletTokens.total_accounts > 0
+                                  ? "Show token accounts"
+                                  : "No token accounts"
                             }
-                            onClick={() => setExpanded(isOpen ? null : w.pubkey)}
+                            onClick={() =>
+                              walletTokens.cached
+                                ? scanWallet(w.pubkey)
+                                : setExpanded(isOpen ? null : w.pubkey)
+                            }
                           >
                             {walletTokens.total_accounts}
                             {walletTokens.with_balance > 0 && ` · ${walletTokens.with_balance} held`}
-                            {walletTokens.total_accounts > 0 && (isOpen ? " ▾" : " ▸")}
+                            {walletTokens.cached
+                              ? " ↻"
+                              : walletTokens.total_accounts > 0 && (isOpen ? " ▾" : " ▸")}
                           </button>
                         ) : (
                           <button
@@ -727,113 +976,22 @@ export function Dashboard({
                         )}
                       </Td>
 
-                      <Td className="border-l border-ink-600/60">
-                        <RowActions>
-                          <IconButton
-                            label="Send SOL"
-                            tone="brand"
+                      <Td>
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm"
                             onClick={() => {
-                              setSendTarget(w);
-                              setDialog("send");
+                              setToolsTarget(w);
+                              setDialog("tools");
                             }}
                           >
-                            <IconSend />
-                          </IconButton>
-
-                          {/* A wallet that can pay its own fee closes directly;
-                              one that cannot has to be funded first. Only one
-                              of the two ever shows, so the cluster keeps a
-                              fixed width across rows. */}
-                          {hasRent &&
-                            (canPay ? (
-                              <IconButton
-                                label={`Close ${walletTokens.empty_accounts} empty token account${
-                                  walletTokens.empty_accounts === 1 ? "" : "s"
-                                } and reclaim ${toSol(walletTokens.reclaimable_lamports)} SOL`}
-                                tone="brand"
-                                onClick={() => {
-                                  setCleanupScope({ pubkeys: [w.pubkey], label: w.label });
-                                  setDialog("cleanup");
-                                }}
-                              >
-                                <IconClose />
-                              </IconButton>
-                            ) : (
-                              <IconButton
-                                label={
-                                  isFunder
-                                    ? "The funding wallet cannot fund itself"
-                                    : `Too empty to pay a fee — lend it one, close its accounts and reclaim ${toSol(
-                                        walletTokens.reclaimable_lamports,
-                                      )} SOL`
-                                }
-                                tone="cyan"
-                                disabled={isFunder}
-                                onClick={() => {
-                                  setFundScope({ pubkeys: [w.pubkey], label: w.label });
-                                  setDialog("funded-cleanup");
-                                }}
-                              >
-                                <IconFund />
-                              </IconButton>
-                            ))}
-                          {!hasRent && (
-                            <IconButton label={closeBlocked} disabled>
-                              <IconClose />
-                            </IconButton>
-                          )}
-
-                          <IconButton
-                            label={`Stake SOL from ${w.label}`}
-                            tone="brand"
-                            onClick={() => {
-                              setStakeTarget(w);
-                              setDialog("stake");
-                            }}
-                          >
-                            <IconStake />
-                          </IconButton>
-
-                          <IconButton
-                            label={`Send privately from ${w.label} through Privacy Cash`}
-                            tone="cyan"
-                            onClick={() => {
-                              setPrivacyTarget(w);
-                              setDialog("privacy");
-                            }}
-                          >
-                            <IconLock />
-                          </IconButton>
-
-                          <IconButton
-                            label={
-                              isFunder
-                                ? "This is the funding wallet — click to unset"
-                                : "Use this wallet to fund fees for the others"
-                            }
-                            tone={isFunder ? "brand" : undefined}
-                            onClick={() => setFunder(isFunder ? null : w.pubkey)}
-                          >
-                            <IconStar filled={isFunder} />
-                          </IconButton>
-
-                          <IconButton
-                            label="Open in explorer"
-                            onClick={() => openUrl(addressUrl(settings, w.pubkey))}
-                          >
-                            <IconExternal />
-                          </IconButton>
-
-                          <span className="mx-0.5 h-4 w-px self-center bg-ink-600" />
-
-                          <IconButton label="Remove from vault" tone="danger" onClick={() => remove(w)}>
-                            <IconTrash />
-                          </IconButton>
-                        </RowActions>
+                            Tools
+                          </Button>
+                        </div>
                       </Td>
                     </Tr>
 
-                    {isOpen && walletTokens && (
+                    {isOpen && walletTokens && !walletTokens.cached && (
                       <tr>
                         <td colSpan={6} className="p-0">
                           <TokenRow tokens={walletTokens} settings={settings} />
@@ -855,6 +1013,7 @@ export function Dashboard({
         <StatusDivider />
         <StatusItem value={`${toSol(total)} SOL`} tone="brand" />
         <StatusItem value={`${funded} funded`} />
+        {savedBalancesAt && <StatusItem value={ago(savedBalancesAt)} label="updated" />}
         {/* Only ever a partial total: it covers the wallets scanned so far,
             which is why it says how many that is. */}
         {poolScanned > 0 && (
@@ -870,7 +1029,11 @@ export function Dashboard({
         <StatusDivider />
         {tokenTotals ? (
           <>
-            <StatusItem value={tokenTotals.accounts} label="token accts" tone="cyan" />
+            <StatusItem
+              value={tokenTotals.accounts}
+              label={tokenTotals.savedOnly ? "token accts (saved)" : "token accts"}
+              tone="cyan"
+            />
             <StatusItem value={`${toSol(tokenTotals.reclaimable)} reclaimable`} />
             {tokenTotals.wallets < wallets.length && (
               <StatusItem value={`${tokenTotals.wallets}/${wallets.length} scanned`} />
@@ -940,6 +1103,26 @@ export function Dashboard({
           }}
           onStaked={refreshBalances}
         />
+      )}
+      {dialog === "tools" && toolsTarget && (
+        <ToolsDialog
+          title={toolsTarget.label}
+          subtitle={toolsTarget.pubkey}
+          items={toolItems(toolsTarget)}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "export" && exportTarget && (
+        <ExportKeyDialog
+          wallet={exportTarget}
+          onClose={() => {
+            setDialog(null);
+            setExportTarget(null);
+          }}
+        />
+      )}
+      {dialog === "positions" && (
+        <PositionsDialog settings={settings} wallets={wallets} onClose={() => setDialog(null)} />
       )}
       {dialog === "privacy" && privacyTarget && (
         <Suspense fallback={null}>

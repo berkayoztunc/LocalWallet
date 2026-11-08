@@ -1,8 +1,10 @@
+mod biometric;
 mod commands;
 mod error;
 mod funded_cleanup;
 mod keys;
 mod menubar;
+mod positions;
 mod privacy;
 mod rpc;
 mod settings;
@@ -200,6 +202,70 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Menu events the frontend listens for.
+#[cfg(target_os = "macos")]
+const MENU_SETTINGS_EVENT: &str = "menu://settings";
+#[cfg(target_os = "macos")]
+const MENU_LOCK_EVENT: &str = "menu://lock";
+
+/// A real macOS menu bar: the app menu (Settings ⌘, and Lock Vault ⌘L), and the
+/// standard Edit, View and Window menus. Edit matters beyond looks: without it,
+/// ⌘C, ⌘V and ⌘A do nothing in the app's text fields.
+#[cfg(target_os = "macos")]
+fn setup_app_menu(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{MenuBuilder, SubmenuBuilder};
+
+    let settings = MenuItem::with_id(app, "app-settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
+    let lock = MenuItem::with_id(app, "app-lock", "Lock Vault", true, Some("CmdOrCtrl+L"))?;
+
+    let app_menu = SubmenuBuilder::new(app, "LocalWallet")
+        .about(None)
+        .separator()
+        .item(&settings)
+        .item(&lock)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+    let edit = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let view = SubmenuBuilder::new(app, "View").fullscreen().build()?;
+    let window = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .close_window()
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &edit, &view, &window])
+        .build()?;
+    app.set_menu(menu)?;
+
+    app.on_menu_event(|app, event| match event.id().as_ref() {
+        "app-settings" => {
+            let _ = app.emit(MENU_SETTINGS_EVENT, ());
+        }
+        "app-lock" => {
+            let _ = app.emit(MENU_LOCK_EVENT, ());
+        }
+        _ => {}
+    });
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -209,6 +275,10 @@ pub fn run() {
         .setup(|app| {
             // A tray that will not build is a degraded app, not a dead one, so
             // this records the failure rather than aborting startup.
+            #[cfg(target_os = "macos")]
+            if let Err(e) = setup_app_menu(app) {
+                eprintln!("app menu unavailable: {e}");
+            }
             let tray = setup_tray(app);
             if let Err(e) = &tray {
                 eprintln!("tray unavailable: {e}");
@@ -220,9 +290,15 @@ pub fn run() {
             commands::vault_status,
             commands::vault_create,
             commands::vault_unlock,
+            commands::vault_restore,
             commands::vault_lock,
             commands::vault_change_password,
             commands::vault_export,
+            commands::wallet_export_secret,
+            commands::biometric_status,
+            commands::biometric_enable,
+            commands::biometric_disable,
+            commands::vault_unlock_biometric,
             commands::wallets_list,
             commands::wallets_import,
             commands::wallets_remove,
@@ -245,6 +321,10 @@ pub fn run() {
             commands::privacy_sign_transaction,
             commands::sweep_preview,
             commands::stake_scan,
+            commands::positions_load,
+            commands::positions_scan_pump,
+            commands::positions_scan_streams,
+            commands::positions_forget,
             commands::stake_quote,
             commands::stake_delegate,
             commands::stake_deactivate,

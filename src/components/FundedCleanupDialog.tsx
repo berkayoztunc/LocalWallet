@@ -35,7 +35,7 @@ const STAGE_TONE: Record<string, string> = {
   funding: "text-cyan-brand",
   closing: "text-purple-brand",
   returning: "text-brand-300",
-  done: "text-brand-500",
+  done: "text-ok",
   skipped: "text-mist-500",
   failed: "text-rose-400",
 };
@@ -127,10 +127,10 @@ export function FundedCleanupDialog({
       title={
         scopeLabel ? (
           <span>
-            Fund, close and return — <span className="text-brand-500">{scopeLabel}</span>
+            Fund Fee &amp; Close Accounts — <span className="text-brand-500">{scopeLabel}</span>
           </span>
         ) : (
-          "Fund, close and return"
+          "Fund Fee & Close Accounts"
         )
       }
       onClose={onClose}
@@ -201,7 +201,7 @@ export function FundedCleanupDialog({
                 label="Destination (from Settings)"
                 hint="Shown in full on purpose — check every character before funding a run."
               >
-                <div className="border border-ink-600 bg-ink-950 px-2 py-1 font-mono text-[11px] break-all text-mist-300">
+                <div className="rounded-lg border border-ink-600 bg-ink-950 px-2 py-1 font-mono text-[11px] break-all text-mist-300">
                   {destination}
                 </div>
               </Field>
@@ -238,7 +238,7 @@ export function FundedCleanupDialog({
                 </EmptyState>
               ) : (
                 <>
-                  <div className="mb-3 grid grid-cols-2 gap-px border border-ink-600 bg-ink-600 sm:grid-cols-4">
+                  <div className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-ink-600 bg-ink-600 sm:grid-cols-4">
                     <Figure label="Funder pays" value={toSol(plan.total_funding)} tone="rose" />
                     <Figure label="Rent recovered" value={toSol(plan.total_reclaimable)} tone="brand" />
                     <Figure label="Network fees" value={toSol(plan.total_fees)} />
@@ -350,7 +350,7 @@ function Figure({
 }) {
   return (
     <div className="bg-ink-850 px-2.5 py-1.5">
-      <div className="text-[10px] tracking-wider text-mist-500 uppercase">{label}</div>
+      <div className="text-[11px] text-mist-500">{label}</div>
       <div
         className={cx(
           "tnum mt-0.5 text-xs",

@@ -10,6 +10,11 @@ interface Props {
   width?: string;
 }
 
+/**
+ * A macOS-style sheet: traffic-light close at the left, centred title, softly
+ * rounded corners over a blurred scrim. Every dialog in the app goes through
+ * this, so the look changes in exactly one place.
+ */
 export function Modal({ title, onClose, children, footer, busy, width = "max-w-2xl" }: Props) {
   // Escape closes, unless something irreversible is mid-flight.
   useEffect(() => {
@@ -22,7 +27,7 @@ export function Modal({ title, onClose, children, footer, busy, width = "max-w-2
 
   return (
     <div
-      className="animate-fade-in fixed inset-0 z-50 grid place-items-center bg-black/70 p-6"
+      className="animate-fade-in fixed inset-0 z-50 grid place-items-center bg-black/45 p-6 backdrop-blur-sm"
       onClick={() => {
         if (!busy) onClose();
       }}
@@ -30,28 +35,30 @@ export function Modal({ title, onClose, children, footer, busy, width = "max-w-2
       <div
         role="dialog"
         aria-modal="true"
-        className={`animate-pop-in flex max-h-[86vh] w-full ${width} flex-col border border-ink-500 bg-ink-850 shadow-float`}
+        className={`animate-pop-in flex max-h-[86vh] w-full ${width} flex-col overflow-hidden rounded-xl border border-white/10 bg-ink-850 shadow-float`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Title bar, not a heading block: fixed height, hairline rule, and a
-            close affordance parked at the right like a real window. */}
-        <div className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-ink-600 bg-ink-800 pr-1 pl-3">
-          <h2 className="truncate text-xs font-semibold tracking-wide">{title}</h2>
+        <div className="relative flex h-11 shrink-0 items-center border-b border-white/10 bg-ink-800 px-3">
           <button
             onClick={onClose}
             disabled={busy}
             aria-label="Close"
-            className="grid size-6 shrink-0 place-items-center text-mist-500 outline-none hover:bg-ink-700 hover:text-mist-50 focus-visible:ring-1 focus-visible:ring-brand-500 disabled:opacity-40"
+            className="group z-10 grid size-3 shrink-0 place-items-center rounded-full bg-[#ff5f57] outline-none focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-40"
           >
-            ✕
+            <span className="text-[8px] leading-none font-bold text-black/60 opacity-0 group-hover:opacity-100">
+              ✕
+            </span>
           </button>
+          <h2 className="pointer-events-none absolute inset-x-12 truncate text-center text-[13px] font-semibold">
+            {title}
+          </h2>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-4">{children}</div>
 
         {/* Action bar. Secondary actions sit left, the committing action right. */}
         {footer && (
-          <div className="flex h-10 shrink-0 items-center gap-2 border-t border-ink-600 bg-ink-800 px-3">
+          <div className="flex min-h-11 shrink-0 items-center gap-2 border-t border-white/10 bg-ink-800 px-3 py-1.5">
             {footer}
           </div>
         )}

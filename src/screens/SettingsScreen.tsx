@@ -1,3 +1,4 @@
+import { TouchIdCard } from "../components/TouchIdCard";
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -23,7 +24,6 @@ import {
   Spinner,
   cx,
 } from "../components/ui";
-import { Logo } from "../components/Logo";
 import { forgetAllPrivacyStorage } from "../lib/privacySessions";
 
 const SECTIONS = [
@@ -148,26 +148,27 @@ export function SettingsScreen({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-center gap-2 border-b border-ink-600 bg-ink-850 px-2.5 py-1.5">
-        <Logo size={18} />
-        <span className="text-xs font-semibold tracking-tight">Settings</span>
+      <header className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-ink-850 px-2.5 py-1.5">
+        <Button variant="ghost" onClick={onBack} title="Back to wallets">
+          ‹ Wallets
+        </Button>
+        <span className="text-[13px] font-semibold">Settings</span>
         <span className="flex-1" />
-        <Button onClick={onBack}>← Back to wallets</Button>
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <nav className="w-40 shrink-0 border-r border-ink-600 py-1.5">
+        <nav className="w-44 shrink-0 space-y-0.5 border-r border-white/10 p-2">
           {SECTIONS.map((s) => (
             <button
               key={s.id}
               onClick={() => setSection(s.id)}
               className={cx(
-                "block w-full border-l-2 px-2.5 py-1.5 text-left text-xs outline-none",
+                "block w-full rounded-md px-2.5 py-1.5 text-left text-xs outline-none",
                 "transition-colors duration-100 ease-[var(--ease-out)]",
-                "focus-visible:ring-1 focus-visible:ring-brand-500",
+                "focus-visible:ring-2 focus-visible:ring-brand-500/60",
                 section === s.id
-                  ? "border-brand-500 bg-ink-800 font-medium text-brand-500"
-                  : "border-transparent text-mist-300 hover:bg-ink-850 hover:text-mist-50",
+                  ? "bg-brand-500 font-medium text-white"
+                  : "text-mist-300 hover:bg-white/10 hover:text-mist-50",
               )}
             >
               {s.label}
@@ -200,9 +201,9 @@ export function SettingsScreen({
                     {health && (
                       <div
                         className={cx(
-                          "mt-2 border px-2.5 py-1.5 text-xs",
+                          "mt-2 rounded-lg border px-3 py-2 text-xs",
                           health.ok
-                            ? "border-brand-600/30 bg-brand-600/10 text-brand-400"
+                            ? "border-ok/30 bg-ok/10 text-ok"
                             : "border-rose-400/30 bg-rose-400/10 text-rose-400",
                         )}
                       >
@@ -284,7 +285,7 @@ export function SettingsScreen({
                     </Banner>
                   )}
 
-                  <div className="mb-3 border border-ink-600 bg-ink-950 p-2.5">
+                  <div className="mb-3 rounded-lg border border-ink-600 bg-ink-950 p-2.5">
                     <label className="flex cursor-pointer items-start gap-2 text-[11px] leading-relaxed text-mist-300">
                       <input
                         type="checkbox"
@@ -302,8 +303,8 @@ export function SettingsScreen({
                     </label>
                   </div>
 
-                  <div className="border border-ink-600 bg-ink-950 p-3">
-                    <div className="mb-1.5 text-[10px] tracking-wider text-mist-500 uppercase">
+                  <div className="rounded-lg border border-ink-600 bg-ink-950 p-3">
+                    <div className="mb-1.5 text-[11px] text-mist-500">
                       Link preview
                     </div>
                     <button
@@ -381,10 +382,12 @@ export function SettingsScreen({
                       Forget Privacy Cash cache
                     </Button>
                     {clearedPrivacyCache && (
-                      <p className="mt-2 text-[11px] text-brand-500">Cleared.</p>
+                      <p className="mt-2 text-[11px] text-ok">Cleared.</p>
                     )}
                   </CardBody>
                 </Card>
+
+                <TouchIdCard />
 
                 <Card className="mb-4">
                   <CardHeader title="Auto-lock" />

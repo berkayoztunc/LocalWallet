@@ -91,7 +91,7 @@ export function SweepDialog({
 
   return (
     <Modal
-      title="Collect all SOL"
+      title="Collect All SOL"
       onClose={onClose}
       busy={phase === "running"}
       footer={

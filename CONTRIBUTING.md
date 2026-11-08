@@ -32,6 +32,7 @@ src-tauri/src/
 ├── rpc.rs              RPC client, batched balances, bounded concurrency
 ├── sweep.rs            SOL transfers: send, quote, bulk sweep
 ├── tokens.rs           token account scan, close, on-chain verification
+├── positions.rs        Pump.fun creator fees + Streamflow locks: read-only scans, saved per wallet
 └── funded_cleanup.rs   fund → close → return
 src/
 ├── screens/            Setup, Unlock, Dashboard, Settings

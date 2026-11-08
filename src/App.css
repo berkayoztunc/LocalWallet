@@ -21,52 +21,50 @@
     format("woff2-variations");
 }
 
-/* Brand tokens.
-   Primary #01EEC5 / Secondary #02B998 / Cyan #00CFFF / Purple #8B3DFF /
-   Magenta #D000FF on the #091116 background. The ink ramp is derived from the
-   background hue so surfaces stay in the same family rather than going grey. */
+/* macOS-style tokens (dark appearance).
+   The ramp names are kept so every screen inherits the look, but the values
+   are the system dark grays: windows #1c1c1e, bars #2c2c2e, separators
+   #38383a. `brand` is the system accent blue; `ok` is system green and is what
+   success states use. Text on the accent is white, not dark ink. */
 @theme {
-  --color-ink-950: #060c10;
-  --color-ink-900: #091116;
-  --color-ink-850: #0d181e;
-  --color-ink-800: #111e26;
-  --color-ink-700: #17272f;
-  --color-ink-600: #1c2f38;
-  --color-ink-500: #2a4450;
-  --color-ink-400: #38596a;
+  --color-ink-950: #161618;
+  --color-ink-900: #1c1c1e;
+  --color-ink-850: #232325;
+  --color-ink-800: #2c2c2e;
+  --color-ink-700: #3a3a3c;
+  --color-ink-600: #38383a;
+  --color-ink-500: #48484a;
+  --color-ink-400: #636366;
 
-  --color-mist-50: #e6f1f4;
-  --color-mist-300: #8ba6b0;
-  --color-mist-500: #5b7682;
+  --color-mist-50: #f5f5f7;
+  --color-mist-300: #aeaeb2;
+  --color-mist-500: #8e8e93;
 
-  --color-brand-300: #5df5da;
-  --color-brand-400: #2af0cf;
-  --color-brand-500: #01eec5;
-  --color-brand-600: #02b998;
-  --color-brand-950: #052a26;
-  /* The primary is a bright mint; only dark ink is readable on top of it. */
-  --color-brand-ink: #04211c;
+  --color-brand-300: #70b8ff;
+  --color-brand-400: #409cff;
+  --color-brand-500: #0a84ff;
+  --color-brand-600: #0071e3;
+  --color-brand-950: #0a2540;
+  --color-brand-ink: #ffffff;
 
-  --color-cyan-brand: #00cfff;
-  --color-purple-brand: #8b3dff;
-  --color-magenta-brand: #d000ff;
+  --color-ok: #30d158;
+  --color-cyan-brand: #64d2ff;
+  --color-purple-brand: #bf5af2;
+  --color-magenta-brand: #ff375f;
 
-  --color-amber-warn: #f0b429;
-  --color-rose-400: #ff5c72;
+  --color-amber-warn: #ff9f0a;
+  --color-rose-400: #ff453a;
 
-  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Slashed zero throughout. In an app full of base58 addresses, 0 against O
-     is a genuine hazard, not a stylistic preference. */
-  --font-sans--font-feature-settings: "zero";
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter Variable", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono Variable", Menlo, monospace;
+  /* Slashed zero in monospace only: in an app full of base58 addresses, 0
+     against O is a genuine hazard. */
   --font-mono--font-feature-settings: "zero";
 
-  /* A desktop tool, not a web page: every corner is square. Surfaces are
-     separated by hairlines rather than elevation, so there is no surface
-     shadow either — only floating dialogs get one. */
-  --radius-card: 0;
-  --radius-control: 0;
-  --shadow-float: 0 16px 48px -12px rgba(0, 0, 0, 0.75);
+  /* Rounded controls and sheets, hairline separators, soft floating shadow. */
+  --radius-card: 10px;
+  --radius-control: 6px;
+  --shadow-float: 0 24px 80px rgba(0, 0, 0, 0.6);
 
   /* One curve for every transition in the app. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -83,6 +81,21 @@
     @apply bg-ink-900 font-sans text-mist-50 antialiased;
     font-size: 13px;
     color-scheme: dark;
+    accent-color: var(--color-brand-500);
+  }
+
+  /* Tailwind's reset squares every control; macOS controls are softly
+     rounded. Setting it here lets ad-hoc buttons and fields inherit it
+     without touching each one. Utilities such as rounded-full still win. */
+  button,
+  input,
+  select,
+  textarea {
+    border-radius: var(--radius-control);
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    border-radius: revert;
   }
 
   /* Numbers line up in columns without needing a monospace face everywhere. */
@@ -94,8 +107,9 @@
     width: 12px;
     height: 12px;
   }
+  /* Thin, rounded, overlay-style thumb like macOS. */
   ::-webkit-scrollbar-thumb {
-    @apply border-4 border-solid border-transparent bg-ink-500 bg-clip-content;
+    @apply rounded-full border-[3px] border-solid border-transparent bg-ink-500 bg-clip-content;
   }
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-ink-400;
@@ -112,12 +126,11 @@
     }
   }
 
-  /* Square dialogs slide rather than scale - a scaling rectangle reads as a
-     web modal, which is exactly what this pass is moving away from. */
+  /* Sheets ease in with a slight scale, like a macOS sheet. */
   @keyframes lw-pop-in {
     from {
       opacity: 0;
-      transform: translateY(4px);
+      transform: scale(0.97) translateY(4px);
     }
   }
 
