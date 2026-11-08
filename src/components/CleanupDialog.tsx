@@ -92,7 +92,7 @@ export function CleanupDialog({
       title={
         scopeLabel ? (
           <span>
-            Close token accounts — <span className="text-brand-500">{scopeLabel}</span>
+            Close Token Accounts — <span className="text-brand-500">{scopeLabel}</span>
           </span>
         ) : (
           "Close unused token accounts"

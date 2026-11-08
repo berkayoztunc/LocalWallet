@@ -10,8 +10,16 @@ if (!("Buffer" in globalThis)) {
   (globalThis as unknown as { Buffer: typeof Buffer }).Buffer = Buffer;
 }
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+async function start() {
+  // Dev only, and only outside Tauri: a fake backend so the UI can be viewed in
+  // a plain browser. The dynamic import keeps it out of production builds.
+  if (import.meta.env.DEV && !("__TAURI_INTERNALS__" in window)) {
+    await import("./dev/mock");
+  }
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}
+void start();

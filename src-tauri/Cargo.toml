@@ -47,6 +47,15 @@ thiserror = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# Touch ID unlock (macOS only): the vault key sits in the login keychain and is
+# handed back only after a LocalAuthentication biometric check.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3"
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSError"] }
+objc2-local-authentication = { version = "0.3", default-features = false, features = ["std", "LAContext", "LAError", "block2"] }
+
 [profile.release]
 opt-level = "s"
 lto = true

@@ -19,21 +19,21 @@ type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md";
 
 const BASE =
-  "inline-flex items-center justify-center gap-1.5 font-medium whitespace-nowrap " +
+  "inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap " +
   "transition-[background-color,border-color,color,opacity] duration-100 ease-[var(--ease-out)] " +
-  "outline-none focus-visible:ring-1 focus-visible:ring-brand-500 focus-visible:ring-offset-1 " +
-  "focus-visible:ring-offset-ink-900 disabled:opacity-40 disabled:pointer-events-none";
+  "outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60 " +
+  "disabled:opacity-40 disabled:pointer-events-none";
 
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-brand-500 text-brand-ink hover:bg-brand-400",
-  secondary: "bg-ink-800 text-mist-50 border border-ink-500 hover:bg-ink-700 hover:border-ink-400",
-  ghost: "text-mist-300 hover:bg-ink-800 hover:text-mist-50",
-  danger: "border border-rose-400/40 text-rose-400 hover:bg-rose-400/10 hover:border-rose-400",
+  primary: "bg-brand-500 text-brand-ink hover:bg-brand-400 active:bg-brand-600",
+  secondary: "bg-white/10 text-mist-50 hover:bg-white/15 active:bg-white/20",
+  ghost: "text-mist-300 hover:bg-white/10 hover:text-mist-50",
+  danger: "bg-white/10 text-rose-400 hover:bg-rose-400/15 active:bg-rose-400/25",
 };
 
 const SIZES: Record<Size, string> = {
-  sm: "h-6 px-2 text-[11px]",
-  md: "h-7 px-2.5 text-xs",
+  sm: "h-6 px-2.5 text-[11px]",
+  md: "h-7 px-3 text-xs",
 };
 
 export function Button({
@@ -67,9 +67,9 @@ export function IconButton({
       title={label}
       aria-label={label}
       className={cx(
-        "grid size-6 shrink-0 place-items-center text-mist-300 outline-none",
+        "grid size-6 shrink-0 place-items-center rounded-md text-mist-300 outline-none",
         "transition-colors duration-100 ease-[var(--ease-out)]",
-        "hover:bg-ink-700 focus-visible:ring-1 focus-visible:ring-brand-500",
+        "hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-brand-500/60",
         // Not pointer-events-none: a disabled icon button carries the reason
         // it is disabled in its tooltip, and killing pointer events would hide
         // exactly the explanation the user is hovering to find.
@@ -99,13 +99,54 @@ export function ButtonGroup({ children, className }: { children: ReactNode; clas
   return (
     <div
       className={cx(
-        "inline-flex items-center [&>button]:border-l-0 [&>button:first-child]:border-l",
+        "inline-flex items-center gap-px overflow-hidden rounded-md [&>button]:rounded-none",
         className,
       )}
     >
       {children}
     </div>
   );
+}
+
+/**
+ * A macOS toolbar item: the icon above a small label, so every control is
+ * named. `tone="accent"` tints the icon for the one primary action.
+ */
+export function ToolbarItem({
+  icon,
+  label,
+  busy,
+  tone,
+  className,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  icon: ReactNode;
+  label: string;
+  busy?: boolean;
+  tone?: "accent";
+}) {
+  return (
+    <button
+      className={cx(
+        "flex w-[66px] flex-col items-center gap-1 rounded-md px-1 py-1 outline-none",
+        "transition-colors duration-100 ease-[var(--ease-out)]",
+        "hover:bg-white/10 active:bg-white/15 focus-visible:ring-2 focus-visible:ring-brand-500/60",
+        "disabled:pointer-events-none disabled:opacity-35",
+        tone === "accent" ? "text-brand-400" : "text-mist-300 hover:text-mist-50",
+        className,
+      )}
+      {...props}
+    >
+      <span className="grid h-[18px] place-items-center">
+        {busy ? <Spinner className="size-3.5" /> : icon}
+      </span>
+      <span className="min-h-[23px] text-center text-[10px] leading-[1.15] font-medium">{label}</span>
+    </button>
+  );
+}
+
+export function ToolbarDivider() {
+  return <span className="mx-1 h-7 w-px shrink-0 self-center bg-white/10" />;
 }
 
 export function Toolbar({ children, className }: { children: ReactNode; className?: string }) {
@@ -115,9 +156,9 @@ export function Toolbar({ children, className }: { children: ReactNode; classNam
 /* -------------------------------- Fields ------------------------------- */
 
 const FIELD =
-  "w-full bg-ink-950 border border-ink-500 px-2 py-1 text-xs text-mist-50 " +
-  "placeholder:text-mist-500 outline-none transition-colors duration-100 ease-[var(--ease-out)] " +
-  "focus:border-brand-500 disabled:opacity-50";
+  "w-full rounded-md bg-white/10 border border-transparent px-2 py-1 text-xs text-mist-50 " +
+  "placeholder:text-mist-500 outline-none transition-[border-color,box-shadow] duration-100 ease-[var(--ease-out)] " +
+  "focus:border-brand-500 focus:ring-2 focus:ring-brand-500/30 disabled:opacity-50";
 
 // React 19 passes `ref` through as an ordinary prop, so no forwardRef needed.
 export function Input({ className, ...props }: ComponentPropsWithRef<"input">) {
@@ -146,7 +187,7 @@ export function Field({
   return (
     <div className="mb-3">
       {label && (
-        <label className="mb-1 block text-[11px] tracking-wide text-mist-300">{label}</label>
+        <label className="mb-1 block text-[11px] text-mist-300">{label}</label>
       )}
       {children}
       {error ? (
@@ -174,7 +215,7 @@ export function SegmentedControl<T extends string>({
   className?: string;
 }) {
   return (
-    <div role="radiogroup" className={cx("inline-flex w-full border border-ink-500", className)}>
+    <div role="radiogroup" className={cx("inline-flex w-full gap-0.5 rounded-lg bg-white/10 p-0.5", className)}>
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -185,12 +226,12 @@ export function SegmentedControl<T extends string>({
             title={option.hint}
             onClick={() => onChange(option.value)}
             className={cx(
-              "flex-1 border-l border-ink-500 px-2 py-1 text-[11px] font-medium first:border-l-0",
+              "flex-1 rounded-md px-2 py-1 text-[11px] font-medium",
               "transition-colors duration-100 ease-[var(--ease-out)] outline-none",
-              "focus-visible:ring-1 focus-visible:ring-brand-500",
+              "focus-visible:ring-2 focus-visible:ring-brand-500/60",
               active
-                ? "bg-brand-500 text-brand-ink"
-                : "bg-ink-950 text-mist-300 hover:bg-ink-800 hover:text-mist-50",
+                ? "bg-ink-400 text-white shadow-sm"
+                : "text-mist-300 hover:text-mist-50",
             )}
           >
             {option.label}
@@ -215,8 +256,8 @@ export function Card({
   return (
     <div
       className={cx(
-        "border border-ink-600 bg-ink-850",
-        interactive && "transition-colors duration-100 ease-[var(--ease-out)] hover:border-ink-500",
+        "overflow-hidden rounded-[10px] border border-white/10 bg-ink-850",
+        interactive && "transition-colors duration-100 ease-[var(--ease-out)] hover:border-white/20",
         className,
       )}
     >
@@ -227,8 +268,8 @@ export function Card({
 
 export function CardHeader({ title, action }: { title: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-ink-600 bg-ink-800 px-3 py-1.5">
-      <h3 className="text-xs font-semibold tracking-wide">{title}</h3>
+    <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-ink-800 px-3 py-1.5">
+      <h3 className="text-xs font-semibold">{title}</h3>
       {action}
     </div>
   );
@@ -246,7 +287,7 @@ export function CardBody({ className, children }: { className?: string; children
  */
 export function StatusBar({ children }: { children: ReactNode }) {
   return (
-    <footer className="flex h-6 shrink-0 items-center gap-3 border-t border-ink-600 bg-ink-850 px-3 text-[11px] text-mist-500">
+    <footer className="flex h-6 shrink-0 items-center gap-3 overflow-hidden border-t border-ink-600 bg-ink-850 px-3 text-[11px] text-mist-500">
       {children}
     </footer>
   );
@@ -290,7 +331,7 @@ export function StatusDivider() {
 
 export function Table({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cx("overflow-x-auto border border-ink-600", className)}>
+    <div className={cx("overflow-x-auto rounded-lg border border-white/10", className)}>
       <table className="w-full border-collapse text-xs">{children}</table>
     </div>
   );
@@ -305,8 +346,8 @@ export function Th({
   return (
     <th
       className={cx(
-        "sticky top-0 z-10 border-b border-ink-600 bg-ink-800 px-2 py-1 text-[10px] font-medium",
-        "tracking-wider text-mist-500 uppercase select-none",
+        "sticky top-0 z-10 border-b border-white/10 bg-ink-800 px-2 py-1.5 text-[11px] font-medium",
+        "text-mist-500 select-none",
         numeric ? "text-right" : "text-left",
         className,
       )}
@@ -334,8 +375,8 @@ export function Tr({ children, className }: { children: ReactNode; className?: s
   return (
     <tr
       className={cx(
-        "group border-b border-ink-600/60 transition-colors duration-75 last:border-0",
-        "hover:bg-ink-800/70 focus-within:bg-ink-800/70",
+        "group border-b border-white/5 transition-colors duration-75 last:border-0",
+        "hover:bg-white/[0.05] focus-within:bg-white/[0.05]",
         className,
       )}
     >
@@ -361,10 +402,10 @@ export function RowActions({ children }: { children: ReactNode }) {
 /* -------------------------------- Banner ------------------------------- */
 
 const BANNERS = {
-  error: "bg-rose-400/10 border-rose-400/40 text-rose-400",
-  warning: "bg-amber-warn/10 border-amber-warn/40 text-amber-warn",
-  info: "bg-brand-950 border-brand-600/40 text-brand-300",
-  success: "bg-brand-600/10 border-brand-600/40 text-brand-400",
+  error: "bg-rose-400/10 border-rose-400/30 text-rose-400",
+  warning: "bg-amber-warn/10 border-amber-warn/30 text-amber-warn",
+  info: "bg-brand-500/10 border-brand-500/30 text-brand-300",
+  success: "bg-ok/10 border-ok/30 text-ok",
 } as const;
 
 export function Banner({
@@ -379,7 +420,7 @@ export function Banner({
   return (
     <div
       className={cx(
-        "animate-fade-in mb-2.5 border-l-2 px-2.5 py-1.5 text-xs leading-snug",
+        "animate-fade-in mb-2.5 rounded-lg border px-3 py-2 text-xs leading-snug",
         BANNERS[kind],
         className,
       )}
@@ -401,11 +442,11 @@ export function Pill({
   return (
     <span
       className={cx(
-        "inline-block border px-1 py-px text-[10px] leading-none tracking-wide uppercase",
+        "inline-block rounded-full border px-1.5 py-0.5 text-[10px] leading-none font-medium",
         tone === "warn"
           ? "border-amber-warn/40 text-amber-warn"
           : tone === "accent"
-            ? "border-brand-600/50 text-brand-300"
+            ? "border-brand-500/40 text-brand-300"
             : tone === "purple"
               ? "border-purple-brand/50 text-purple-brand"
               : tone === "cyan"
@@ -421,7 +462,7 @@ export function Pill({
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cx("animate-skeleton bg-ink-700", className)} />;
+  return <div className={cx("animate-skeleton rounded-md bg-ink-700", className)} />;
 }
 
 // The one intentionally round thing in the app: a square spinner reads as
@@ -448,9 +489,9 @@ export function EmptyState({ title, children }: { title?: ReactNode; children?: 
 
 export function ProgressBar({ value }: { value: number }) {
   return (
-    <div className="my-2 h-1 overflow-hidden bg-ink-950">
+    <div className="my-2 h-1.5 overflow-hidden rounded-full bg-white/10">
       <div
-        className="h-full bg-brand-500 transition-[width] duration-300 ease-[var(--ease-out)]"
+        className="h-full rounded-full bg-brand-500 transition-[width] duration-300 ease-[var(--ease-out)]"
         style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
       />
     </div>
@@ -460,7 +501,7 @@ export function ProgressBar({ value }: { value: number }) {
 export function StatusText({ status }: { status: string }) {
   const tone =
     status === "sent" || status === "closed"
-      ? "text-brand-500"
+      ? "text-ok"
       : status === "failed"
         ? "text-rose-400"
         : "text-mist-500";
@@ -469,7 +510,7 @@ export function StatusText({ status }: { status: string }) {
 
 export function LogBox({ children }: { children: ReactNode }) {
   return (
-    <div className="max-h-64 overflow-auto border border-ink-600 bg-ink-950 p-2 font-mono text-[11px]">
+    <div className="max-h-64 overflow-auto rounded-lg border border-white/10 bg-ink-950 p-2 font-mono text-[11px]">
       {children}
     </div>
   );
@@ -477,7 +518,7 @@ export function LogBox({ children }: { children: ReactNode }) {
 
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="border border-ink-500 bg-ink-800 px-1 py-px font-sans text-[10px] text-mist-500">
+    <kbd className="rounded border border-white/15 bg-white/10 px-1 py-px font-sans text-[10px] text-mist-500">
       {children}
     </kbd>
   );

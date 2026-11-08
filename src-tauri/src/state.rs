@@ -1,8 +1,10 @@
 //! Shared application state.
 //!
-//! Key material lives here and nowhere else. It is never returned from a
-//! command, never serialized to the webview, and is zeroized when the vault
-//! locks. Commands that need to sign take a short-lived copy of the keypairs
+//! Key material lives here and nowhere else. It is never serialized to the
+//! webview except by `AppState::export_secret`, the single, deliberate
+//! exception behind the "Export private key" command (password, native
+//! confirmation and a failure back-off, see `commands::wallet_export_secret`).
+//! It is zeroized when the vault locks. Commands that need to sign take a short-lived copy of the keypairs
 //! out of the lock (the mutex is a std `Mutex`, so it must not be held across
 //! an `.await`) and drop it as soon as signing is done.
 
@@ -34,6 +36,26 @@ pub struct AppState {
     pub prices: crate::menubar::PriceCache,
     /// The one wallet, if any, currently cleared for Privacy Cash.
     privacy_grant: Mutex<Option<PrivacyGrant>>,
+    /// Back-off for wrong passwords at the export prompt. Kept in the backend
+    /// because the webview is the party being defended against.
+    export_throttle: Mutex<ExportThrottle>,
+}
+
+/// Consecutive wrong passwords at the export prompt, and when the next try is
+/// allowed.
+#[derive(Default)]
+struct ExportThrottle {
+    failures: u32,
+    blocked_until: Option<Instant>,
+}
+
+/// Seconds to wait after `failures` consecutive wrong passwords: free for the
+/// first two, then 30 s doubling up to 15 minutes.
+pub fn export_backoff_secs(failures: u32) -> u64 {
+    if failures < 3 {
+        return 0;
+    }
+    (30u64 << (failures - 3).min(5)).min(15 * 60)
 }
 
 /// Permission to hand one wallet's shielded-pool credential to the webview.
@@ -84,6 +106,47 @@ impl SigningKey {
 impl AppState {
     pub fn set_unlocked(&self, unlocked: Unlocked) {
         *self.unlocked.lock().unwrap() = Some(unlocked);
+    }
+
+    /// Refuse while the export prompt is backing off after wrong passwords.
+    pub fn export_gate(&self) -> Result<()> {
+        let t = self.export_throttle.lock().unwrap();
+        match t.blocked_until {
+            Some(until) if Instant::now() < until => Err(AppError::invalid(format!(
+                "too many wrong passwords; try again in {} s",
+                (until - Instant::now()).as_secs() + 1
+            ))),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn export_failed(&self) {
+        let mut t = self.export_throttle.lock().unwrap();
+        t.failures += 1;
+        let wait = export_backoff_secs(t.failures);
+        t.blocked_until = (wait > 0).then(|| Instant::now() + Duration::from_secs(wait));
+    }
+
+    pub fn export_succeeded(&self) {
+        *self.export_throttle.lock().unwrap() = ExportThrottle::default();
+    }
+
+    /// The raw 64-byte keypair of one wallet, for the export command only.
+    ///
+    /// This is the one function that hands secret bytes to the caller. It does
+    /// no authorization itself; `commands::wallet_export_secret` demands the
+    /// master password and a native confirmation first. Do not call it from
+    /// anywhere else.
+    pub fn export_secret(&self, pubkey: &str) -> Result<(String, Zeroizing<[u8; 64]>)> {
+        self.with_vault(|u| {
+            let w = u
+                .data
+                .wallets
+                .iter()
+                .find(|w| w.pubkey == pubkey)
+                .ok_or_else(|| AppError::UnknownWallet(pubkey.to_string()))?;
+            Ok((w.label.clone(), Zeroizing::new(w.secret)))
+        })
     }
 
     pub fn lock_vault(&self) {
@@ -294,6 +357,28 @@ mod tests {
 
         state.revoke_privacy_grant_for("wallet");
         assert!(state.check_privacy_grant("wallet").is_err());
+    }
+
+    #[test]
+    fn export_backoff_is_free_then_doubles_and_caps() {
+        assert_eq!(export_backoff_secs(0), 0);
+        assert_eq!(export_backoff_secs(2), 0);
+        assert_eq!(export_backoff_secs(3), 30);
+        assert_eq!(export_backoff_secs(4), 60);
+        assert_eq!(export_backoff_secs(5), 120);
+        assert_eq!(export_backoff_secs(50), 15 * 60);
+    }
+
+    #[test]
+    fn export_gate_blocks_after_repeated_failures_and_clears_on_success() {
+        let state = AppState::default();
+        state.export_failed();
+        state.export_failed();
+        assert!(state.export_gate().is_ok());
+        state.export_failed(); // third wrong password
+        assert!(state.export_gate().is_err());
+        state.export_succeeded();
+        assert!(state.export_gate().is_ok());
     }
 
     #[test]

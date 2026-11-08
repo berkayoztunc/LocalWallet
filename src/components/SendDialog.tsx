@@ -126,7 +126,7 @@ export function SendDialog({
         <>
           <Field label="From">
             <div
-              className="border border-ink-600 bg-ink-950 px-2 py-1 font-mono text-[11px] text-mist-300"
+              className="rounded-lg border border-ink-600 bg-ink-950 px-2 py-1 font-mono text-[11px] text-mist-300"
               title={wallet.pubkey}
             >
               {shortKey(wallet.pubkey)}
@@ -177,7 +177,7 @@ export function SendDialog({
           )}
 
           {(phase === "confirm" || phase === "sending") && quote && (
-            <div className="border border-ink-600 bg-ink-950 p-2 font-mono text-[11px]">
+            <div className="rounded-lg border border-ink-600 bg-ink-950 p-2 font-mono text-[11px]">
               <Row label="Recipient gets" value={`${toSol(quote.amount)} SOL`} strong />
               <Row label="Network fee" value={`${toSol(quote.fee)} SOL`} />
               <Row label="Left in wallet" value={`${toSol(quote.remaining)} SOL`} />

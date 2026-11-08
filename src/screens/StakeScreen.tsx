@@ -33,13 +33,12 @@ import {
   cx,
 } from "../components/ui";
 import { IconExternal, IconUnstake, IconWithdraw } from "../components/icons";
-import { Logo } from "../components/Logo";
 
 type Tab = "stakes" | "validators";
 
 /** Status dot colours, mirroring the lifecycle order. */
 const STATUS_TONE: Record<StakeStatus, string> = {
-  active: "text-brand-500",
+  active: "text-ok",
   activating: "text-cyan-brand",
   deactivating: "text-amber-warn",
   inactive: "text-mist-500",
@@ -166,9 +165,8 @@ export function StakeScreen({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-center gap-2 border-b border-ink-600 bg-ink-850 px-2.5 py-1.5">
-        <Logo size={18} />
-        <span className="text-xs font-semibold tracking-tight">Stake</span>
+      <header className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-ink-850 px-2.5 py-1.5">
+        <span className="text-[13px] font-semibold">Stake</span>
 
         <div className="ml-3 w-56">
           <SegmentedControl
@@ -223,15 +221,15 @@ export function StakeScreen({
                 <thead>
                   <tr>
                     <Th className="w-[18%]">Wallet</Th>
-                    <Th className="border-l border-ink-600">Validator</Th>
-                    <Th numeric className="w-32 border-l border-ink-600">
+                    <Th className="">Validator</Th>
+                    <Th numeric className="w-32">
                       Stake
                     </Th>
-                    <Th className="w-28 border-l border-ink-600">Status</Th>
-                    <Th numeric className="w-20 border-l border-ink-600">
+                    <Th className="w-28">Status</Th>
+                    <Th numeric className="w-20">
                       Epoch
                     </Th>
-                    <Th className="w-24 border-l border-ink-600" />
+                    <Th className="w-24" />
                   </tr>
                 </thead>
                 <tbody>
@@ -241,7 +239,7 @@ export function StakeScreen({
                     return (
                       <Tr key={a.address}>
                         <Td className="truncate">{a.owner_label}</Td>
-                        <Td className="border-l border-ink-600/60 font-mono text-[11px]">
+                        <Td className=" font-mono text-[11px]">
                           {a.vote_account ? (
                             <span title={a.vote_account}>
                               {name ?? shortKey(a.vote_account)}
@@ -250,16 +248,16 @@ export function StakeScreen({
                             <span className="text-mist-500">undelegated</span>
                           )}
                         </Td>
-                        <Td numeric className="border-l border-ink-600/60 font-mono">
+                        <Td numeric className=" font-mono">
                           {toSol(a.lamports)}
                         </Td>
-                        <Td className="border-l border-ink-600/60 text-[11px]">
+                        <Td className=" text-[11px]">
                           <StatusDot status={a.status} />
                         </Td>
-                        <Td numeric className="border-l border-ink-600/60 text-[11px] text-mist-500">
+                        <Td numeric className=" text-[11px] text-mist-500">
                           {a.deactivation_epoch ?? a.activation_epoch}
                         </Td>
-                        <Td className="border-l border-ink-600/60">
+                        <Td className="">
                           <div className="flex justify-end gap-px">
                             {working ? (
                               <span className="grid size-6 place-items-center">
@@ -321,7 +319,7 @@ export function StakeScreen({
                         <span
                           className={cx(
                             "w-20 shrink-0 text-[11px] font-medium",
-                            entry.status === "failed" ? "text-rose-400" : "text-brand-500",
+                            entry.status === "failed" ? "text-rose-400" : "text-ok",
                           )}
                         >
                           {entry.status}
@@ -394,19 +392,19 @@ export function StakeScreen({
                 <thead>
                   <tr>
                     <Th>Validator</Th>
-                    <Th numeric className="w-36 border-l border-ink-600">
+                    <Th numeric className="w-36">
                       Active stake
                     </Th>
-                    <Th numeric className="w-20 border-l border-ink-600">
+                    <Th numeric className="w-20">
                       Comm.
                     </Th>
-                    <Th numeric className="w-20 border-l border-ink-600">
+                    <Th numeric className="w-20">
                       APY
                     </Th>
-                    <Th numeric className="w-24 border-l border-ink-600">
+                    <Th numeric className="w-24">
                       Credits
                     </Th>
-                    <Th className="w-16 border-l border-ink-600" />
+                    <Th className="w-16" />
                   </tr>
                 </thead>
                 <tbody>
@@ -426,19 +424,19 @@ export function StakeScreen({
                           </span>
                         </div>
                       </Td>
-                      <Td numeric className="border-l border-ink-600/60 font-mono">
+                      <Td numeric className=" font-mono">
                         {Math.round(v.activated_stake / 1e9).toLocaleString()}
                       </Td>
-                      <Td numeric className="border-l border-ink-600/60">
+                      <Td numeric className="">
                         {v.commission}%
                       </Td>
-                      <Td numeric className="border-l border-ink-600/60 text-brand-500">
+                      <Td numeric className=" text-brand-500">
                         {v.apy != null ? `${v.apy.toFixed(2)}%` : "—"}
                       </Td>
-                      <Td numeric className="border-l border-ink-600/60 text-mist-500">
+                      <Td numeric className=" text-mist-500">
                         {v.epoch_credits.toLocaleString()}
                       </Td>
-                      <Td className="border-l border-ink-600/60">
+                      <Td className="">
                         <div className="flex justify-end">
                           <IconButton
                             label="Open vote account in explorer"

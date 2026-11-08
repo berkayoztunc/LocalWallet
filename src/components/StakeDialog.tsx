@@ -142,7 +142,7 @@ export function StakeDialog({
           </Banner>
           {stakeAddress && (
             <Field label="New stake account">
-              <div className="border border-ink-600 bg-ink-950 px-2 py-1 font-mono text-[11px] break-all text-mist-300">
+              <div className="rounded-lg border border-ink-600 bg-ink-950 px-2 py-1 font-mono text-[11px] break-all text-mist-300">
                 {stakeAddress}
               </div>
             </Field>
@@ -201,7 +201,7 @@ export function StakeDialog({
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
-                    <div className="mt-1 max-h-48 overflow-auto border border-ink-600 bg-ink-950">
+                    <div className="mt-1 max-h-48 overflow-auto rounded-lg border border-ink-600 bg-ink-950">
                       {!validators ? (
                         <div className="p-3 text-center text-[11px] text-mist-500">
                           <Spinner className="mr-1.5" /> Loading…
@@ -275,7 +275,7 @@ export function StakeDialog({
             to three days. It starts earning from the next epoch, not immediately.
           </Banner>
 
-          <div className="border border-ink-600 bg-ink-950 p-2 font-mono text-[11px]">
+          <div className="rounded-lg border border-ink-600 bg-ink-950 p-2 font-mono text-[11px]">
             <Row label="Delegating" value={`${toSol(lamports)} SOL`} strong />
             <Row label="Rent reserve" value={`${toSol(quote.rent)} SOL`} />
             <Row label="Network fee" value={`${toSol(quote.fee)} SOL`} />

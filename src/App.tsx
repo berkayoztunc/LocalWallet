@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import { api, asAppError, type Settings } from "./lib/api";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { forgetPrivacySessions } from "./lib/privacySessions";
 import { Setup } from "./screens/Setup";
 import { Unlock } from "./screens/Unlock";
@@ -21,7 +22,7 @@ type Screen = "loading" | "setup" | "unlock" | "dashboard" | "settings" | "stake
  */
 const PRE_UNLOCK: readonly Screen[] = ["loading", "setup", "unlock"];
 
-export default function App() {
+function AppInner() {
   const [screen, setScreen] = useState<Screen>("loading");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
@@ -55,6 +56,24 @@ export default function App() {
     setScreen("unlock");
   }, []);
 
+  // The native macOS menu (Settings… ⌘, and Lock Vault ⌘L) reaches the UI as
+  // events. Both are ignored before the vault is open.
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
+  useEffect(() => {
+    const subs: Promise<UnlistenFn>[] = [
+      listen("menu://settings", () =>
+        setScreen((s) => (PRE_UNLOCK.includes(s) ? s : "settings")),
+      ),
+      listen("menu://lock", () => {
+        if (!PRE_UNLOCK.includes(screenRef.current)) void lock();
+      }),
+    ];
+    return () => {
+      subs.forEach((p) => void p.then((off) => off()).catch(() => {}));
+    };
+  }, [lock]);
+
   // Auto-lock: any input resets the timer, so the vault only closes after a
   // genuine stretch of inactivity.
   useEffect(() => {
@@ -78,7 +97,7 @@ export default function App() {
   if (fatal) {
     return (
       <div className="grid min-h-full place-items-center p-6">
-        <div className="animate-pop-in w-full max-w-md border border-ink-600 bg-ink-850 p-7 shadow-float">
+        <div className="animate-pop-in w-full max-w-md rounded-2xl border border-white/10 bg-ink-850 p-7 shadow-float">
           <h1 className="mb-3 text-xl font-semibold">Something went wrong</h1>
           <div className="border border-rose-400/30 bg-rose-400/10 px-3 py-2.5 text-[13px] text-rose-400">
             {fatal}
@@ -126,5 +145,33 @@ export default function App() {
       onOpenStake={() => setScreen("stake")}
       onLock={lock}
     />
+  );
+}
+
+const IS_MAC = typeof navigator !== "undefined" && /Mac/i.test(navigator.userAgent);
+
+/**
+ * macOS draws no title bar for this window (`titleBarStyle: Overlay`), so the
+ * traffic lights float over the page. This strip gives them room, makes the top
+ * of the window draggable, and carries the centred app name, the same colour as
+ * the toolbar below it so the two read as one unified title bar. Other
+ * platforms keep their native frame.
+ */
+export default function App() {
+  if (!IS_MAC) return <AppInner />;
+  return (
+    <div className="flex h-full flex-col">
+      <div
+        data-tauri-drag-region
+        className="flex h-7 shrink-0 items-center justify-center bg-ink-850 text-[13px] font-semibold text-mist-300 select-none"
+      >
+        <span data-tauri-drag-region className="pointer-events-none">
+          LocalWallet
+        </span>
+      </div>
+      <div className="min-h-0 flex-1">
+        <AppInner />
+      </div>
+    </div>
   );
 }

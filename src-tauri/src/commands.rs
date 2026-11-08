@@ -59,6 +59,8 @@ pub struct WalletView {
     pub label: String,
     pub pubkey: String,
     pub added_at: i64,
+    /// Last-known balance and token counts, from the encrypted vault.
+    pub snapshot: Option<vault::WalletSnapshot>,
 }
 
 #[derive(Serialize)]
@@ -139,6 +141,30 @@ pub async fn vault_unlock(
 }
 
 #[tauri::command]
+pub async fn vault_restore(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    source: String,
+    password: String,
+) -> Result<VaultStatus> {
+    let dir = data_dir(&app)?;
+    let src = PathBuf::from(&source);
+    let restored = blocking(move || vault::restore(&dir, &src, &password)).await?;
+    let count = restored.0.wallets.len();
+    state.set_unlocked(Unlocked {
+        data: restored.0,
+        key: restored.1,
+        salt: restored.2,
+    });
+    crate::sync_menu(&app);
+    Ok(VaultStatus {
+        exists: true,
+        unlocked: true,
+        wallet_count: count,
+    })
+}
+
+#[tauri::command]
 pub async fn vault_lock(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.lock_vault();
     crate::sync_menu(&app);
@@ -165,7 +191,183 @@ pub async fn vault_change_password(
         key: reopened.1,
         salt: reopened.2,
     });
+    // The Touch ID key belonged to the old password's derivation.
+    crate::biometric::delete_key();
     Ok(())
+}
+
+/// What the export prompt shows: the same secret in the two formats other
+/// tools accept.
+#[derive(Serialize)]
+pub struct ExportedSecret {
+    /// 64-byte keypair as base58, the "secret key" Phantom and Solflare import.
+    pub base58: String,
+    /// The same bytes as a JSON array, the `id.json` the Solana CLI reads.
+    pub json: String,
+}
+
+/// Reveal one wallet's private key.
+///
+/// The one command that returns secret material, so it is gated three ways: the
+/// vault must be open, the master password must be typed again (and is checked
+/// by a full decrypt, with a back-off after wrong guesses), and the user must
+/// approve a native dialog the webview cannot click for itself.
+#[tauri::command]
+pub async fn wallet_export_secret(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pubkey: String,
+    password: String,
+) -> Result<ExportedSecret> {
+    if !state.is_unlocked() {
+        return Err(AppError::Locked);
+    }
+    state.export_gate()?;
+    // Also proves the wallet is really in the vault before anything is asked.
+    let (label, _) = state.export_secret(&pubkey)?;
+
+    let dir = data_dir(&app)?;
+    match blocking(move || vault::unlock(&dir, &password).map(|_| ())).await {
+        Ok(()) => {}
+        Err(AppError::BadPassword) => {
+            state.export_failed();
+            return Err(AppError::BadPassword);
+        }
+        Err(e) => return Err(e),
+    }
+
+    let short = format!(
+        "{}…{}",
+        &pubkey[..4.min(pubkey.len())],
+        &pubkey[pubkey.len().saturating_sub(4)..]
+    );
+    let approved = tauri::async_runtime::spawn_blocking(move || {
+        use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        app.dialog()
+            .message(format!(
+                "Show the private key of {label} ({short})?\n\n\
+                 Anyone who sees it can take everything in this wallet, and \
+                 nothing can reverse that. Do not paste it into a website, a \
+                 chat or an email."
+            ))
+            .title("Export private key")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Show key".to_string(),
+                "Cancel".to_string(),
+            ))
+            .blocking_show()
+    })
+    .await
+    .map_err(|e| AppError::invalid(format!("could not ask for confirmation: {e}")))?;
+    if !approved {
+        return Err(AppError::invalid("Export was declined"));
+    }
+
+    let (_, secret) = state.export_secret(&pubkey)?;
+    state.export_succeeded();
+    let json = format!(
+        "[{}]",
+        secret
+            .iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    Ok(ExportedSecret {
+        base58: bs58::encode(&secret[..]).into_string(),
+        json,
+    })
+}
+
+/// Whether Touch ID unlock can be offered, and whether it is set up. Never
+/// prompts and never reads the secret, so the lock screen can call it freely.
+#[derive(Serialize)]
+pub struct BiometricStatus {
+    pub available: bool,
+    pub enabled: bool,
+}
+
+fn biometric_status_now() -> BiometricStatus {
+    BiometricStatus {
+        available: crate::biometric::available(),
+        enabled: crate::biometric::has_key(),
+    }
+}
+
+#[tauri::command]
+pub async fn biometric_status() -> Result<BiometricStatus> {
+    Ok(biometric_status_now())
+}
+
+/// Turn Touch ID unlock on. Needs the open vault and the master password (so a
+/// stray click cannot enable it), then a Touch ID check, then saves the key.
+#[tauri::command]
+pub async fn biometric_enable(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    password: String,
+) -> Result<BiometricStatus> {
+    if !state.is_unlocked() {
+        return Err(AppError::Locked);
+    }
+    if !crate::biometric::available() {
+        return Err(AppError::invalid("Touch ID is not available on this Mac"));
+    }
+    let dir = data_dir(&app)?;
+    blocking(move || {
+        let (_, key, _) = vault::unlock(&dir, &password)?;
+        crate::biometric::prompt("Turn on Touch ID unlock for LocalWallet")?;
+        crate::biometric::store_key(&key)
+    })
+    .await?;
+    Ok(biometric_status_now())
+}
+
+/// Turn Touch ID unlock off. Always allowed: removing a shortcut needs no proof.
+#[tauri::command]
+pub async fn biometric_disable() -> Result<BiometricStatus> {
+    crate::biometric::delete_key();
+    Ok(biometric_status_now())
+}
+
+/// Unlock the vault with Touch ID instead of the password.
+#[tauri::command]
+pub async fn vault_unlock_biometric(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<VaultStatus> {
+    let dir = data_dir(&app)?;
+    let opened = blocking(move || {
+        crate::biometric::prompt("Unlock LocalWallet")?;
+        let key = crate::biometric::load_key()?
+            .ok_or_else(|| AppError::invalid("Touch ID unlock is not turned on"))?;
+        vault::unlock_with_key(&dir, &key).map_err(|e| match e {
+            AppError::BadPassword => {
+                // Stale: the vault was re-keyed. Forget it so the lock screen
+                // stops offering something that cannot work.
+                crate::biometric::delete_key();
+                AppError::invalid(
+                    "Touch ID no longer matches this vault (was the password changed?). \
+                     Unlock with your password and turn Touch ID on again.",
+                )
+            }
+            other => other,
+        })
+    })
+    .await?;
+    let count = opened.0.wallets.len();
+    state.set_unlocked(Unlocked {
+        data: opened.0,
+        key: opened.1,
+        salt: opened.2,
+    });
+    crate::sync_menu(&app);
+    Ok(VaultStatus {
+        exists: true,
+        unlocked: true,
+        wallet_count: count,
+    })
 }
 
 #[tauri::command]
@@ -186,6 +388,7 @@ pub async fn wallets_list(state: State<'_, AppState>) -> Result<Vec<WalletView>>
                 label: w.label.clone(),
                 pubkey: w.pubkey.clone(),
                 added_at: w.added_at,
+                snapshot: u.data.snapshots.get(&w.pubkey).cloned(),
             })
             .collect())
     })
@@ -254,6 +457,7 @@ pub async fn wallets_remove(
         if data.wallets.len() == before {
             return Err(AppError::UnknownWallet(pubkey.clone()));
         }
+        data.forget_snapshot(&pubkey);
         Ok(())
     })?;
     // A wallet on its way out must not leave its Privacy Cash approval behind
@@ -316,13 +520,26 @@ pub async fn wallet_balances(app: &AppHandle, state: &AppState) -> Result<Vec<Ba
     let client = rpc::client(&settings);
     let balances = rpc::fetch_balances(client, &parsed, settings.concurrency).await;
 
-    Ok(balances
+    let views: Vec<BalanceView> = balances
         .into_iter()
         .map(|(pk, lamports)| BalanceView {
             pubkey: pk.to_string(),
             lamports,
         })
-        .collect())
+        .collect();
+
+    // Remember them for the next launch. Best effort: a vault that cannot be
+    // saved right now is no reason to fail a refresh that already succeeded.
+    let readings: Vec<(String, Option<u64>)> = views
+        .iter()
+        .map(|v| (v.pubkey.clone(), v.lamports))
+        .collect();
+    let now = chrono::Utc::now().timestamp();
+    let _ = state.with_vault_mut(&dir, |data| {
+        data.record_balances(&readings, now);
+        Ok(())
+    });
+    Ok(views)
 }
 
 #[tauri::command]
@@ -359,7 +576,32 @@ pub async fn tokens_scan(
     let settings = state.settings(&dir);
     let keys = state.signing_keys(pubkeys.as_deref())?;
     let client = rpc::client(&settings);
-    tokens::scan(client, &keys, settings.concurrency).await
+    let scan = tokens::scan(client, &keys, settings.concurrency).await?;
+
+    // Remember the counts for the next launch. Wallets whose scan failed keep
+    // whatever was saved before. Best effort, as with balances.
+    let readings: Vec<(String, vault::TokenFigures)> = scan
+        .wallets
+        .iter()
+        .filter(|w| w.error.is_none())
+        .map(|w| {
+            (
+                w.pubkey.clone(),
+                vault::TokenFigures {
+                    accounts: w.total_accounts as u32,
+                    with_balance: w.with_balance as u32,
+                    empty: w.empty_accounts as u32,
+                    reclaimable_lamports: w.reclaimable_lamports,
+                },
+            )
+        })
+        .collect();
+    let now = chrono::Utc::now().timestamp();
+    let _ = state.with_vault_mut(&dir, |data| {
+        data.record_tokens(&readings, now);
+        Ok(())
+    });
+    Ok(scan)
 }
 
 #[tauri::command]
@@ -405,6 +647,69 @@ pub async fn stake_scan(
     let keys = state.signing_keys(pubkeys.as_deref())?;
     let client = rpc::client(&settings);
     stake::scan(client, &keys, settings.concurrency).await
+}
+
+/// Saved results of the last Pump.fun and Streamflow scans. No network.
+#[tauri::command]
+pub async fn positions_load(app: AppHandle) -> Result<crate::positions::PositionsCache> {
+    Ok(crate::positions::load(&data_dir(&app)?))
+}
+
+/// Pump.fun creator fees across the vault's wallets. Read-only, RPC only.
+#[tauri::command]
+pub async fn positions_scan_pump(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pubkeys: Option<Vec<String>>,
+    max_age_secs: Option<u64>,
+) -> Result<crate::positions::PumpView> {
+    let dir = data_dir(&app)?;
+    let settings = state.settings(&dir);
+    let keys = state.signing_keys(pubkeys.as_deref())?;
+    let client = rpc::client(&settings);
+    crate::positions::scan_pump_fees(
+        &dir,
+        client,
+        &keys,
+        settings.concurrency,
+        max_age_secs.map(|s| s as i64),
+    )
+    .await
+}
+
+/// Streamflow locks across the vault's wallets. Read-only. Sends addresses of
+/// wallets that have a contract to Streamflow's public API, so the UI drives
+/// this from an explicit action.
+#[tauri::command]
+pub async fn positions_scan_streams(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pubkeys: Option<Vec<String>>,
+    max_age_secs: Option<u64>,
+) -> Result<crate::positions::StreamsView> {
+    let dir = data_dir(&app)?;
+    let settings = state.settings(&dir);
+    let keys = state.signing_keys(pubkeys.as_deref())?;
+    let client = rpc::client(&settings);
+    crate::positions::scan_streams(
+        &dir,
+        client,
+        &keys,
+        settings.concurrency,
+        max_age_secs.map(|s| s as i64),
+    )
+    .await
+}
+
+/// Drop the saved Pump.fun / Streamflow results for some wallets. `which` is
+/// "pump", "streams" or "all". No network.
+#[tauri::command]
+pub async fn positions_forget(
+    app: AppHandle,
+    which: String,
+    pubkeys: Vec<String>,
+) -> Result<crate::positions::PositionsCache> {
+    crate::positions::forget(&data_dir(&app)?, &which, &pubkeys)
 }
 
 /// Push a new total into the tray and persist it.

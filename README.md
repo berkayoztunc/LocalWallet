@@ -37,26 +37,40 @@ LocalWallet puts every wallet you own on one screen, does the tedious parts in b
 | **Token inventory** | Every token account across SPL Token and Token-2022, with balances, and how much rent is reclaimable. |
 | **Close unused accounts** | Reclaim rent from zero-balance token accounts. Built and signed locally — no third-party service, no fee taken. |
 | **Fund → close → return** | Lend an empty wallet a fee, close its accounts, send the proceeds on. Releases rent that would otherwise be unreachable. |
-| **Collect all SOL** | Drain every wallet into one destination, with a per-wallet preview first. |
+| **Collect All SOL** | Drain every wallet into one destination, with a per-wallet preview first. |
 | **Send SOL** | Single transfers from any wallet, with a quote before you sign. |
 | **Private send** | Shield SOL into the [Privacy Cash](https://privacycash.org) pool, pay any address out of it, and unshield the rest back to a wallet of your own. Opt-in, third-party, mainnet only — [read this first](#private-send-privacy-cash). |
 | **Shielded balances** | A **Pool** column showing what each wallet holds in Privacy Cash, scanned per row on request. |
 | **Hidden addresses** | The wallet list masks every address by default. One toggle reveals them; copying works either way. |
 | **Stake** | Every stake account your wallets control, with per-row unstake and withdraw, staking to any validator, plus a browsable list of all validators. |
+| **Creator fees & locks** | Per-wallet check for unclaimed **Pump.fun creator fees** (bonding curve and Pump AMM) and active **Streamflow** locks. Two independent scans, incremental by default, with per-row tools. Read-only. See [how it keeps traffic low](#fees--locks-scans). |
+| **Export private key** | Show one wallet's secret key as base58 (Phantom, Solflare) or as a JSON array (Solana CLI). Behind your password and a native confirmation. See [Security](#security). |
+| **Touch ID unlock** | macOS only. Unlock the vault with your fingerprint instead of the master password, turned on in Settings → Security. See the caveat below. |
+| **Remembers the last figures** | Each wallet's last balance and token counts are saved inside the encrypted vault, so the list shows them the moment you unlock — richest first — before any network call. Saved token counts are marked with ↻ and the status bar says how old the balances are; a refresh or scan replaces them. Nothing extra is written in cleartext. |
 | **Tray total** | `163.40 SOL · $12,440` on the menu bar (macOS), the panel (Linux) or on hover (Windows), updated whenever balances refresh. Optional. |
+| **Native look** | A macOS-style interface throughout: system dark grays, system blue accent, rounded controls, a unified title bar with the system traffic lights, an icon-over-label toolbar, a real macOS menu bar (Settings… ⌘, and Lock Vault ⌘L, plus the standard Edit menu so ⌘C/⌘V work), a login window styled after the macOS one, sheet dialogs, hairline separators and the system font (SF on macOS, Inter elsewhere). The whole theme lives in `src/App.css` tokens and the shared `src/components/ui.tsx` / `Modal.tsx`, so it changes in one place. |
+| **Per-wallet tools** | Each wallet row has one **Tools** button that opens a named, grouped list — Send SOL to an Address, Send Privately (Privacy Cash), Stake to a Validator, Close Empty Token Accounts (or Fund Fee & Close Accounts), Set as Funding Wallet, Copy Address, View on your explorer, Export Private Key, Remove Wallet from Vault. A tool that cannot run says why instead of disappearing. |
 | **Configurable** | Your own RPC endpoint, commitment level, priority fee, concurrency, and a choice of Solana Explorer, Solscan or Orb. |
 
 ## Security
 
 Read this part.
 
-- **Your keys never reach the interface.** All key material stays in Rust: decrypt → sign → zeroize. The UI only ever receives public keys, balances and signatures. No command in the app can return a private key.
+- **Your keys stay out of the interface, with one deliberate exception.** All key material stays in Rust: decrypt → sign → zeroize. The UI receives public keys, balances and signatures. The single command that returns a private key is **Export private key** (`wallet_export_secret`), and it is gated three ways: the vault must be open, the master password must be typed again and is checked by a full decrypt (with a growing back-off after wrong guesses, kept in the backend), and you must approve a native system dialog that the app window cannot click for itself. The key is shown blurred, closes itself after a minute, and is dropped from memory when the dialog goes. It is never logged or written to disk.
 - **The vault file leaks nothing.** Argon2id (64 MiB, 3 passes) derives the key; the whole wallet list is sealed with XChaCha20-Poly1305 under a fresh nonce on every save. Not the wallet count, not the labels — only the KDF parameters are readable, because they're needed to re-derive the key. A test asserts no plaintext key material appears in the file.
 - **No password recovery.** A wrong password simply fails the AEAD check; no password hash is stored anywhere. Export a backup and keep the password somewhere safe.
 - **No telemetry.** The app talks to the RPC endpoint you configure. The one exception is the validator directory used by the Stake screen — see [Network access](#network-access) — which is a single, disableable request that sends no address and no key.
 
 > [!WARNING]
 > **This is unaudited software that holds private keys.** It has not been reviewed by a third party. Use it for wallets you own, start on devnet, and try a single low-value wallet on mainnet before pointing it at everything you have. You are responsible for your own keys.
+
+### Touch ID unlock
+
+Turning it on stores the vault's **derived key** (not your password) in the macOS login keychain, and reading it back is gated by a Touch ID check in the app. Be clear about what that is: the biometric check is enforced by this app, not by the Secure Enclave. Hardware-bound protection needs the data-protection keychain, which needs a signing identity with keychain entitlements, and this app is ad-hoc signed. So treat Touch ID as a convenience. Your master password stays the real secret, and anything that can run code as you, on an unlocked Mac, is a bigger risk than the fingerprint prompt suggests.
+
+- Changing the master password re-keys the vault, which makes the stored key useless, so it is deleted automatically; turn Touch ID on again afterwards.
+- Because the keychain item is tied to the app's code signature, a rebuilt or updated app may make macOS ask once whether it may use the saved item. Choose **Always Allow**.
+- It needs a Mac with Touch ID and a registered fingerprint. Elsewhere the setting says it is unavailable.
 
 ### Network access
 
@@ -66,10 +80,20 @@ Read this part.
 | Validator names, icons, APY | **api.stakewiz.com** | nothing but the request itself and your IP | **yes** — Settings → Explorer → uncheck |
 | SOL price for the menu bar | **api.coingecko.com** | nothing but the request itself and your IP | **yes** — Settings → Security → uncheck |
 | Private sends | **api3.privacycash.org** | pool notes, proofs, recipient address | **yes** — only if you open the Privacy Cash dialog |
+| Streamflow locks | **api-public.streamflow.finance** | the addresses of wallets that receive a Streamflow contract | **yes** — only when you press a Streamflow scan button |
 
-The directory and price calls never include an address, a balance or a key. The directory is fetched only on the Stake screen's Validators tab and cached for six hours; the price is fetched at most once a minute.
+The directory and price calls never include an address, a balance or a key. The Streamflow lookup does include wallet addresses (it cannot work otherwise) and only for wallets your RPC already showed to have a contract; Pump.fun fees are read from your RPC alone. The directory is fetched only on the Stake screen's Validators tab and cached for six hours; the price is fetched at most once a minute.
 
-Privacy Cash is the exception, and the only feature that sends anything meaningful to a third party — it cannot work otherwise, which is why it sits behind its own warning and does nothing until you open it. With all three off, the app makes no request to any host other than your RPC.
+Privacy Cash and Streamflow are the exceptions, the only features that send anything meaningful to a third party — they cannot work otherwise, which is why each sits behind an explicit action and does nothing until you trigger it. With the optional calls off and neither of those features used, the app makes no request to any host other than your RPC.
+
+### Fees & locks scans
+
+The **Fees & locks** window lists every vault wallet as a row, with one tab per source. The two scans are separate buttons and never run together.
+
+- **Pump.fun fees** derive each wallet's creator-vault addresses (bonding-curve vault and Pump AMM WSOL vault) and read them from your RPC in batches of 100. Rent is subtracted, so the figure is what a claim would actually pay. Fees routed through a fee-sharing config go to its shareholders and are not detected.
+- **Streamflow locks** first ask your RPC, with one zero-length `getProgramAccounts` query per wallet, whether the wallet receives any Streamflow contract. Only wallets that do are sent, one at a time, to Streamflow's public API, which is rate-limited (HTTP 420 with a `Retry-After` of about an hour). A limited scan stops, says how many wallets it did not reach, and keeps everything already saved. Only the standard contract account is detected on-chain; other Streamflow account types may be missed.
+- **Incremental by default.** The time each wallet was last checked is saved, including wallets with nothing to show. **Scan Outdated** skips wallets checked within the last 5 minutes (Pump.fun) or 6 hours (Streamflow); **Rescan All** forces everything. Each row has its own **Scan**, **Details**, **Copy**, **Open** and **Forget** tools, and rows can be selected for bulk scan or forget.
+- A running stream's partial unlock is not computed, because the API gives no cliff time and a guess would show the wrong amount; **Claimable now** is filled in only when a stream has ended. Nothing in this window signs or sends a transaction.
 
 ### Private send (Privacy Cash)
 
@@ -171,9 +195,9 @@ The AppImage also carries an embedded signature, but **AppImage does not check i
    - base58 secret key (Phantom / Solflare export)
    - JSON byte array (`solana-keygen`, `id.json`)
 3. **Set an RPC endpoint.** The default public endpoint is fine for a handful of wallets; past that it rate-limits. Use a dedicated provider (Helius, QuickNode, Triton), or a devnet URL to practise. There's a **Test** button next to the field.
-4. **Scan tokens** to see what rent is recoverable.
-5. **Close accounts** — or **Fund & close** for wallets too empty to pay their own fee.
-6. **Collect all SOL** into one destination. It shows a full preview and makes you retype the destination address before anything is signed.
+4. **Scan Tokens** to see what rent is recoverable.
+5. **Close Token Accounts** — or **Fund & Close Accounts** for wallets too empty to pay their own fee.
+6. **Collect All SOL** into one destination. It shows a full preview and makes you retype the destination address before anything is signed.
 
 ## How it works
 
@@ -187,7 +211,7 @@ Two Solana rules make this sharper than it looks:
 1. An account may not hold a **non-zero balance below the rent-exempt minimum** (890,880 lamports for a plain wallet). Funding an empty wallet with "just enough for fees" is rejected outright.
 2. The runtime validates the fee payer on `balance − fee` **before instructions execute**. The rent the close is about to return doesn't count yet. So a wallet funded to *exactly* the minimum still can't pay for anything.
 
-**Fund & close** handles both: it lends the rent-exempt minimum *plus* every fee the wallet will spend (~0.00095 SOL), closes the accounts, then drains the wallet to your destination. Three transactions, each waiting for the previous to confirm. The loan comes back with the rent.
+**Fund & Close Accounts** handles both: it lends the rent-exempt minimum *plus* every fee the wallet will spend (~0.00095 SOL), closes the accounts, then drains the wallet to your destination. Three transactions, each waiting for the previous to confirm. The loan comes back with the rent.
 
 </details>
 
@@ -239,8 +263,10 @@ The backend signs exactly two things and refuses everything else: the one fixed 
 
 | File | Contents |
 |---|---|
-| `vault.bin` | Encrypted keypairs |
+| `vault.bin` | Encrypted keypairs, and each wallet's last-known balance and token counts (all inside the encryption) |
 | `settings.json` | Cleartext, non-sensitive: RPC URL, destination, explorer, concurrency |
+| `positions.json` | **Cleartext: the last Fees & locks results** — wallet addresses and labels, fee and lock amounts, and when each wallet was last checked. No keys. Delete the file, or use **Forget** on a row, to remove it. |
+| Login keychain item `com.localwallet.app` / `vault-key` | Only if Touch ID unlock is on: the vault's derived key, not the password. Turn Touch ID off in Settings (or delete the item in Keychain Access) to remove it. Not in this directory. |
 | `menubar.json` | **Cleartext: your last known total in SOL and USD.** Written only while the tray total is enabled, so it can still show a number when the vault is locked. This is the one place holdings information lives outside the encrypted vault — disable the tray total in Settings to delete it. |
 
 Reinstalling the app never touches this directory — the path is derived from the bundle identifier, not the app bundle.
@@ -266,6 +292,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 node scripts/simulate-privacy.mjs   # private-send checks, submits nothing
 ```
+
+**Working on the interface.** `npm run tauri dev` is the real app. To iterate on looks without any backend, run `npm run dev` and open `http://localhost:1420/?mock` in a browser: a dev-only stand-in (`src/dev/mock.ts`) answers the Tauri commands with fake wallets and balances, so every screen and dialog can be inspected with no vault and no network. `?mock=unlock` and `?mock=setup` start on those screens. The mock loads only in dev and only outside Tauri, so it is not part of any build.
 
 Node 24 or newer is required: Privacy Cash's SDK will not install or run below it.
 
